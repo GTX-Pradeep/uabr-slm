@@ -31,9 +31,9 @@ Wikipedia + pseudonymous facts ─► 40M base model ─► <ANSWER>/<CALL> poli
 
 | Phase | What it does | Where it runs | Gate to pass | Status |
 |---|---|---|---|---|
-| **1** | Model, trainer, tests, GPU smoke run, resume check | Kaggle / Colab T4, ~20 min | 7 tests pass, loss falls, resume continuous, tokens/s recorded | ✅ in repo |
-| 2 | Data: Wikipedia corpus, controlled facts, exposure ledger, tokenizer | Kaggle CPU | 6 ledger audits pass, tokenizer frozen | ⏳ |
-| 3 | Pretrain the 40M base model (1B tokens) | Kaggle T4, ~6 h | Val loss falls, facts recalled by exposure tier | ⏳ |
+| **1** | Model, trainer, tests, GPU smoke run, resume check | Kaggle / Colab T4, ~20 min | 7 tests pass, loss falls, resume continuous, tokens/s recorded | ✅ passed |
+| 2 | Data: Wikipedia corpus, controlled facts, exposure ledger, tokenizer | Kaggle CPU | 6 ledger audits pass, tokenizer frozen | ✅ code in repo · built `data_v1` reused |
+| 3 | Pretrain the 40M base model (1B tokens) | Kaggle T4, ~6 h | Val loss falls, facts recalled by exposure tier | ✅ code in repo · trained `base_v1` reused |
 | 4 | Frozen evidence index + delegation training | Kaggle / Colab, < 1 h | Both actions learned, AUROC > 0.5 | ⏳ |
 | 5 | No-replay interference pilot | Kaggle / Colab, ~2 h | Go / no-go note written | ⏳ |
 | 6 | Utility labels + SFT with each replay method × 2 seeds | Kaggle, spread over accounts | Equal-budget checkpoints | ⏳ |
@@ -72,6 +72,28 @@ python src/train/pretrain.py --config configs/smoke_40m.yaml --resume persist/sm
 
 Synthetic data is a Markov chain with ideal loss ln 4 ≈ 1.39, so a working model drops from ~9.4 towards ~1.4.
 
+Phase 1 results are in [`docs/results.md`](docs/results.md).
+
+## Phases 2–3: data and pretraining
+
+These were already built once by the team, so the outputs are reused rather than rebuilt:
+
+- **`data_v1`** (Phase 2 output): `pretrain/train.bin` + `val.bin`, `facts/` (exposure ledger, prompts,
+  evidence), `sft/` (instruction data), `tokenizer/` and the audit report.
+- **`base_v1`** (Phase 3 output): the pretrained 40M checkpoint.
+
+On Kaggle, attach them with **+ Add Input → Notebook Output Files**. Later notebooks find `data_v1` automatically
+under `/kaggle/input/`.
+
+**How the data is designed.** 12,000 invented people (for example "Varnek Holloway") each get 3 real-looking facts,
+36,000 in total. Because the names are invented, Wikipedia cannot leak the answers. About half the facts appear in the
+pretraining text 5, 20 or 80 times; the rest never appear and exist only in the evidence source. A 40M model learns
+the 80× facts but not the 5× ones, so real examples land on both sides of the answer-or-call boundary. Facts are split
+by person: delegation_train 50%, replay_construction 20%, dev 10%, test 20%.
+
+To rebuild from scratch: run `notebooks/phase2_build_data.ipynb` (CPU, Internet on, about 3–5 h with `QUICK = False`),
+then `notebooks/phase3_pretrain.ipynb` (GPU, about 6 h).
+
 ## Training flags for free GPUs
 
 | Flag | Purpose |
@@ -87,12 +109,16 @@ Synthetic data is a Markov chain with ideal loss ln 4 ≈ 1.39, so a working mod
 configs/    pretrain.yaml (full 40M, 1B tokens) · smoke_40m.yaml · tiny_cpu.yaml
 src/model/  model.py (transformer) · load.py (checkpoint loading)
 src/train/  pretrain.py (FP16 AMP, grad accumulation, cosine LR, full-state checkpoints)
-scripts/    check_gpu.py · make_synthetic_data.py
-tests/      test_model.py
-notebooks/  phase1_setup_and_smoke.ipynb
+src/data/   formats.py (special tokens, sequence formats, answer matching) · vocab.py (Wikidata answer lists)
+            build_facts.py (pseudonymous facts, exposure tiers, splits, prompts, evidence, ledger)
+            wiki.py (Wikipedia stream) · sft_data.py (Dolly + Alpaca) · tokenizer.py (BPE 12k) · pack.py (.bin files)
+scripts/    check_gpu.py · make_synthetic_data.py · audit_ledger.py · probe_facts.py · sample_text.py
+tests/      test_model.py · test_data.py · conftest.py
+notebooks/  phase1_setup_and_smoke.ipynb · phase2_build_data.ipynb · phase3_pretrain.ipynb
+docs/       results.md (gate results per phase)
 ```
 
-Later phases add `src/data`, `src/retrieval`, `src/replay`, `src/evaluation` and one notebook per phase.
+Later phases add `src/retrieval`, `src/replay`, `src/evaluation` and one notebook per phase.
 
 ## Ground rules
 
