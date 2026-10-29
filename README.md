@@ -34,7 +34,7 @@ Wikipedia + pseudonymous facts ─► 40M base model ─► <ANSWER>/<CALL> poli
 | **1** | Model, trainer, tests, GPU smoke run, resume check | Kaggle / Colab T4, ~20 min | 7 tests pass, loss falls, resume continuous, tokens/s recorded | ✅ passed |
 | 2 | Data: Wikipedia corpus, controlled facts, exposure ledger, tokenizer | Kaggle CPU | 6 ledger audits pass, tokenizer frozen | ✅ code in repo · built `data_v1` reused |
 | 3 | Pretrain the 40M base model (1B tokens) | Kaggle T4, ~6 h | Val loss falls, facts recalled by exposure tier | ✅ code in repo · trained `base_v1` reused |
-| 4 | Frozen evidence index + delegation training | Kaggle / Colab, < 1 h | Both actions learned, AUROC > 0.5 | ⏳ |
+| 4 | Frozen evidence index + delegation training | Kaggle / Colab, < 1 h | Both actions learned, AUROC > 0.5 | 🟡 code in repo · run next |
 | 5 | No-replay interference pilot | Kaggle / Colab, ~2 h | Go / no-go note written | ⏳ |
 | 6 | Utility labels + SFT with each replay method × 2 seeds | Kaggle, spread over accounts | Equal-budget checkpoints | ⏳ |
 | 7 | Test evaluation, paired bootstrap, error analysis | Colab, < 1 h | Frozen prediction tables + figures | ⏳ |
@@ -94,6 +94,23 @@ by person: delegation_train 50%, replay_construction 20%, dev 10%, test 20%.
 To rebuild from scratch: run `notebooks/phase2_build_data.ipynb` (CPU, Internet on, about 3–5 h with `QUICK = False`),
 then `notebooks/phase3_pretrain.ipynb` (GPU, about 6 h).
 
+## Phase 4: answer or call
+
+The base model learns to open every factual answer with one action token. Loss covers only the assistant tokens;
+evidence text is copied by the tool, so it is masked.
+
+```
+<BOS><USER> Where was Varnek Holloway born?<ASSISTANT><ANSWER> Lyon<EOS>
+<BOS><USER> What language did Orsa Kellin speak?<ASSISTANT><CALL><EVIDENCE> Orsa Kellin spoke Portuguese. </EVIDENCE> Portuguese<EOS>
+```
+
+Labels come from what `base_v1` actually knows: each non-test fact is asked as a cloze, and a correct greedy answer
+means ANSWER, otherwise CALL. This is the plan's documented fallback to exposure-based labels and is reported as a
+declared deviation. The routing score is `call_score = log p(<CALL>) − log p(<ANSWER>)` at the first assistant token.
+The kept checkpoint is the epoch with the best dev routing AUROC, saved as `delegation_v1`.
+
+Run `notebooks/phase4_delegation.ipynb` with `data_v1` and `base_v1` attached as inputs.
+
 ## Training flags for free GPUs
 
 | Flag | Purpose |
@@ -112,13 +129,18 @@ src/train/  pretrain.py (FP16 AMP, grad accumulation, cosine LR, full-state chec
 src/data/   formats.py (special tokens, sequence formats, answer matching) · vocab.py (Wikidata answer lists)
             build_facts.py (pseudonymous facts, exposure tiers, splits, prompts, evidence, ledger)
             wiki.py (Wikipedia stream) · sft_data.py (Dolly + Alpaca) · tokenizer.py (BPE 12k) · pack.py (.bin files)
+src/retrieval/  evidence.py (frozen evidence lookup, hashed as the index version)
+src/evaluation/ generate.py (batched greedy decoding, next-token scores) · predict.py (one prediction table per checkpoint)
+                metrics.py (AUROC, AP, call-budget accuracy, calibration, risk-coverage, bootstrap)
+src/train/  sft.py (shared fine-tuning loop for delegation, SFT and every replay branch)
 scripts/    check_gpu.py · make_synthetic_data.py · audit_ledger.py · probe_facts.py · sample_text.py
-tests/      test_model.py · test_data.py · conftest.py
-notebooks/  phase1_setup_and_smoke.ipynb · phase2_build_data.ipynb · phase3_pretrain.ipynb
+            label_knowledge.py · train_delegation.py
+tests/      test_model.py · test_data.py · test_phase4.py · conftest.py
+notebooks/  phase1_setup_and_smoke.ipynb · phase2_build_data.ipynb · phase3_pretrain.ipynb · phase4_delegation.ipynb
 docs/       results.md (gate results per phase)
 ```
 
-Later phases add `src/retrieval`, `src/replay`, `src/evaluation` and one notebook per phase.
+Later phases add `src/replay` and one notebook per phase.
 
 ## Ground rules
 
