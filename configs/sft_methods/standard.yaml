@@ -1,0 +1,24 @@
+# Instruction SFT shared by every Phase 5-6 branch. Fixed here once (plan, Phase 5) and never tuned per method.
+# ~6M instruction tokens (data_v1/sft/sft_train.jsonl), 1 epoch, batch 32 sequences, constant LR after warmup.
+# The constant LR makes the 25% / 50% checkpoints of one run equal to separate shorter runs.
+finetune:
+  seed: 11                  # overridden by --seed (pilot and confirmatory seeds: 11, 29)
+  precision: fp16
+  epochs: 1
+  batch_size: 32
+  prebatched: true          # batches are built by src/train/sft_batches.py so replay branches share them
+  lr: 5.0e-5
+  min_lr: 5.0e-5
+  warmup_steps: 30
+  schedule: constant
+  weight_decay: 0.01
+  betas: [0.9, 0.95]
+  grad_clip: 1.0
+  log_every_steps: 50
+  checkpoint_every_steps: 200   # full resumable state every 200 updates
+  eval_each_epoch: false        # no checkpoint selection: every branch is compared at the same update count
+pilot:
+  seeds: [11, 29]
+  save_fracs: [0.25, 0.5]       # plus final.pt = 100%
+quick:
+  max_batches: 40
