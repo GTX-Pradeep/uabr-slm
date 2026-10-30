@@ -109,6 +109,15 @@ means ANSWER, otherwise CALL. This is the plan's documented fallback to exposure
 declared deviation. The routing score is `call_score = log p(<CALL>) − log p(<ANSWER>)` at the first assistant token.
 The kept checkpoint is the epoch with the best dev routing AUROC, saved as `delegation_v1`.
 
+The gate has six checks: both actions used (each ≥ 5%, recall ≥ 0.5 per label), useful ranking (AUROC 95% CI lower
+bound > 0.55), the direct path works on known facts, the CALL path works (≥ 90%), and two anti-cheating checks:
+
+- **Decisive policy:** mutual information between prompt and action ≥ 0.1 bits. This is overall action entropy minus
+  mean per-prompt entropy. "Always CALL" (low overall entropy) and "50/50 for every prompt" (high per-prompt entropy)
+  both give ≈ 0, while a real policy, mixed overall but confident on each prompt, gives a clearly positive value.
+- **Tier sensitive:** the CALL rate for never-shown facts is at least 0.2 above the rate for 80× facts. A flat rate
+  across tiers means a global habit rather than a per-fact decision.
+
 Run `notebooks/phase4_delegation.ipynb` with `data_v1` and `base_v1` attached as inputs.
 
 ## Training flags for free GPUs
