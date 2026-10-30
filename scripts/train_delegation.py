@@ -65,12 +65,17 @@ def gate(df, knows_dev, call_ci):
     direct_known = float(d[d.label == "ANSWER"].reward_answer.mean()) if (d.label == "ANSWER").any() else float("nan")
     direct_unknown = float(d[d.label == "CALL"].reward_answer.mean())
     s = M.summarize(d)
+    tiers = s["call_rate_by_tier"]
     checks = {
         "both_actions_learned": min(pred_share.get("ANSWER", 0), pred_share.get("CALL", 0)) >= 0.05
                                 and min(recall.values()) >= 0.5,
         "useful_ranking": call_ci[0] > 0.55,
         "direct_path_works": direct_known - direct_unknown >= 0.2,
         "call_path_works": s["acc_always_call"] >= 0.9,
+        # anti-cheating: "always CALL" and "50/50 for everything" both give mutual information ~0
+        "decisive_policy": s["decisiveness"]["mutual_information"] >= 0.1,
+        # a real policy calls clearly less for 80x facts than for never-shown facts; a flat rate is a heuristic
+        "tier_sensitive": 0 in tiers and 80 in tiers and tiers[0] - tiers[80] >= 0.2,
     }
     rep = {
         "confusion_label_x_predicted": conf.to_dict(orient="index"), "recall_by_label": recall,
@@ -182,6 +187,10 @@ def main():
     for b in (5, 10, 20):
         o = s[f"budget_{b}"]
         print(f"  call budget {b:>2}%: accuracy {o['accuracy']:.3f} | harmful answers {o['harmful_answer_rate']:.3f}")
+    dz = s["decisiveness"]
+    print(f"decisiveness: mutual information {dz['mutual_information']:.3f} bits (overall entropy {dz['marginal_entropy']:.3f} "
+          f"- per-prompt entropy {dz['conditional_entropy']:.3f}) | near-coin-flip prompts {dz['near_coinflip_share']:.1%}")
+    print("CALL rate by exposure tier (0 = never shown): " + " | ".join(f"{k}x {v:.2f}" for k, v in s["call_rate_by_tier"].items()))
     for k, v in rep["checks"].items():
         print(("PASS " if v else "FAIL ") + k)
     print("DELEGATION GATE PASS" if rep["all_pass"] else "DELEGATION GATE NOT PASSED - see gate_report.json")
