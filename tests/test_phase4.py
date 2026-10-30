@@ -84,7 +84,25 @@ def test_delegation_outputs(delegation_run):
     assert need <= set(df.columns)
     assert set(df.split) == {"dev"}
     rep = json.load(open(out / "gate_report.json"))
-    assert set(rep["checks"]) == {"both_actions_learned", "useful_ranking", "direct_path_works", "call_path_works"}
+    assert set(rep["checks"]) == {"both_actions_learned", "useful_ranking", "direct_path_works", "call_path_works",
+                                  "decisive_policy", "tier_sensitive"}
+
+
+def test_decisiveness_catches_both_cheats():
+    n = 1000
+    tiers = np.array([0, 5, 20, 80] * (n // 4))
+    def table(call_score):
+        return pd.DataFrame({"call_score": call_score, "exposure_count": tiers,
+                             "predicted_action": np.where(call_score > 0, "CALL", "ANSWER")})
+    always_call = M.decisiveness(table(np.full(n, 8.0)))          # p(CALL) ~ 1 everywhere
+    coin_flip = M.decisiveness(table(np.zeros(n)))                 # p(CALL) = 0.5 everywhere
+    real = table(np.where(tiers == 80, -5.0, 5.0))                 # confident, and depends on the prompt
+    good = M.decisiveness(real)
+    assert always_call["mutual_information"] < 0.01 and coin_flip["mutual_information"] < 0.01
+    assert coin_flip["marginal_entropy"] > 0.99                     # overall entropy alone would wrongly pass it
+    assert good["mutual_information"] > 0.7 and good["near_coinflip_share"] == 0
+    rates = M.call_rate_by_tier(real)
+    assert rates[0] == 1.0 and rates[80] == 0.0
     st = torch.load(out / "delegation_v1.pt", map_location="cpu", weights_only=False)
     assert st["name"] == "delegation_v1" and "model" in st["config"] and "finetune" in st["config"]
 
