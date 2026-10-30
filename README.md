@@ -35,7 +35,7 @@ Wikipedia + pseudonymous facts ─► 40M base model ─► <ANSWER>/<CALL> poli
 | 2 | Data: Wikipedia corpus, controlled facts, exposure ledger, tokenizer | Kaggle CPU | 6 ledger audits pass, tokenizer frozen | ✅ code in repo · built `data_v1` reused |
 | 3 | Pretrain the 40M base model (1B tokens) | Kaggle T4, ~6 h | Val loss falls, facts recalled by exposure tier | ✅ code in repo · trained `base_v1` reused |
 | 4 | Frozen evidence index + delegation training | Kaggle / Colab, < 1 h | Both actions learned, AUROC > 0.5 | 🟡 code in repo · run next |
-| 5 | No-replay interference pilot | Kaggle / Colab, ~2 h | Go / no-go note written | ⏳ |
+| 5 | No-replay interference pilot | Kaggle / Colab, ~2 h | Go / no-go note written | 🟡 code in repo · run after Phase 4 |
 | 6 | Utility labels + SFT with each replay method × 2 seeds | Kaggle, spread over accounts | Equal-budget checkpoints | ⏳ |
 | 7 | Test evaluation, paired bootstrap, error analysis | Colab, < 1 h | Frozen prediction tables + figures | ⏳ |
 
@@ -120,6 +120,23 @@ bound > 0.55), the direct path works on known facts, the CALL path works (≥ 90
 
 Run `notebooks/phase4_delegation.ipynb` with `data_v1` and `base_v1` attached as inputs.
 
+## Phase 5: interference pilot
+
+Plain instruction tuning (Dolly + Alpaca, ~6M tokens, 1 epoch, LR 5e-5 constant, batch 32) from `delegation_v1`, with
+seeds 11 and 29 and checkpoints at 25%, 50% and 100%. Every checkpoint is scored on all dev prompts, and the
+preregistered rule in [`docs/pilot_decision.md`](docs/pilot_decision.md) prints **GO**, **RECALIBRATION_ONLY** or
+**NO_CHANGE**. The comparison is 100% minus 0% on the same prompts, with a paired bootstrap:
+
+- **Real damage:** routing AUROC or accuracy at a *re-picked* 10% call budget falls. Both are threshold-free, so moving
+  the threshold cannot fix them.
+- **Calibration only:** only accuracy at the *frozen* threshold (chosen on `delegation_v1`) falls.
+
+All SFT branches share one runner (`scripts/run_sft.py`). Instruction batches are built once per seed
+(`src/train/sft_batches.py`); replay branches in Phase 6 add their examples *inside* those batches, so every branch
+makes the same number of updates on the same instruction data. The 100% checkpoints double as the Standard SFT branch.
+
+Run `notebooks/phase5_pilot.ipynb` with `data_v1` and the Phase 4 output attached.
+
 ## Training flags for free GPUs
 
 | Flag | Purpose |
@@ -142,11 +159,13 @@ src/retrieval/  evidence.py (frozen evidence lookup, hashed as the index version
 src/evaluation/ generate.py (batched greedy decoding, next-token scores) · predict.py (one prediction table per checkpoint)
                 metrics.py (AUROC, AP, call-budget accuracy, calibration, risk-coverage, bootstrap)
 src/train/  sft.py (shared fine-tuning loop for delegation, SFT and every replay branch)
+            sft_batches.py (instruction batches shared by all SFT branches; replay mixed in evenly)
 scripts/    check_gpu.py · make_synthetic_data.py · audit_ledger.py · probe_facts.py · sample_text.py
-            label_knowledge.py · train_delegation.py
-tests/      test_model.py · test_data.py · test_phase4.py · conftest.py
-notebooks/  phase1_setup_and_smoke.ipynb · phase2_build_data.ipynb · phase3_pretrain.ipynb · phase4_delegation.ipynb
-docs/       results.md (gate results per phase)
+            label_knowledge.py · train_delegation.py · run_sft.py · pilot_eval.py
+configs/sft_methods/  standard.yaml (the SFT setup every Phase 5-6 branch shares)
+tests/      test_model.py · test_data.py · test_phase4.py · test_phase5.py · conftest.py
+notebooks/  phase1_setup_and_smoke.ipynb · phase2_build_data.ipynb · phase3_pretrain.ipynb · phase4_delegation.ipynb · phase5_pilot.ipynb
+docs/       results.md (gate results per phase) · pilot_decision.md (preregistered pilot rule)
 ```
 
 Later phases add `src/replay` and one notebook per phase.
