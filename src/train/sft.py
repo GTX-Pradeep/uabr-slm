@@ -64,7 +64,8 @@ def train(model, epochs_examples, cfg, base_config, out_dir, eval_fn=None, selec
     """Fine-tune `model` on fixed, pre-ordered batches.
 
     epochs_examples: list (one per epoch) of lists of (ids, labels). The caller fixes the order (seeded), so a
-        resumed run rebuilds exactly the same lists and continues from the saved step.
+        resumed run rebuilds exactly the same lists and continues from the saved step. With cfg['prebatched'] each
+        epoch is instead a list of batches (each a list of (ids, labels)), used as given.
     eval_fn(model, step) -> dict: called after each epoch (and every cfg['eval_every_steps'] if set).
         With eval_fn and select_metric, the best checkpoint (higher is better) is written to out_dir/best.pt.
         Without them NO selection happens and only out_dir/final.pt is written. That is deliberate for the
@@ -82,7 +83,11 @@ def train(model, epochs_examples, cfg, base_config, out_dir, eval_fn=None, selec
     random.seed(seed); np.random.seed(seed); torch.manual_seed(seed); torch.cuda.manual_seed_all(seed)
     use_amp = device.type == "cuda" and cfg.get("precision", "fp16") == "fp16"
     bs = cfg["batch_size"]
-    total = sum(math.ceil(len(e) / bs) for e in epochs_examples)
+    # prebatched: each epoch is already a list of batches (Phases 5-6 build them so that every SFT branch shares the
+    # same instruction batches and replay examples are added inside them, keeping the update count identical)
+    prebatched = bool(cfg.get("prebatched", False))
+    n_batches_of = (lambda e: len(e)) if prebatched else (lambda e: math.ceil(len(e) / bs))
+    total = sum(n_batches_of(e) for e in epochs_examples)
     decay = [p for p in model.parameters() if p.dim() >= 2]
     no_decay = [p for p in model.parameters() if p.dim() < 2]
     opt = torch.optim.AdamW([{"params": decay, "weight_decay": cfg["weight_decay"]},
@@ -139,12 +144,12 @@ def train(model, epochs_examples, cfg, base_config, out_dir, eval_fn=None, selec
     g = 0  # global batch index across epochs
     stopped = False
     for ep, examples in enumerate(epochs_examples):
-        n_batches = math.ceil(len(examples) / bs)
+        n_batches = n_batches_of(examples)
         for bi in range(n_batches):
             g += 1
             if g <= step:  # already done before the resume point
                 continue
-            batch = examples[bi * bs : (bi + 1) * bs]
+            batch = examples[bi] if prebatched else examples[bi * bs : (bi + 1) * bs]
             x, y = collate(batch, device)
             for pg in opt.param_groups:
                 pg["lr"] = lr_at(step, total, cfg)
