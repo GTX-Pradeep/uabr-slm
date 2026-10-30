@@ -91,6 +91,36 @@ def aurc(df):
     return float(risk.mean())
 
 
+# ---------------------------------------------------------------- policy decisiveness
+def _h2(p):
+    """Binary entropy in bits, safe at 0 and 1."""
+    p = np.clip(np.asarray(p, float), 1e-12, 1 - 1e-12)
+    return -(p * np.log2(p) + (1 - p) * np.log2(1 - p))
+
+
+def decisiveness(df):
+    """Does the policy decide per prompt, or does it cheat with one global habit?
+
+    p_i = p(CALL | prompt i) renormalised over the two actions = sigmoid(call_score).
+      marginal_entropy     H(mean p_i): low  -> one action everywhere ("always CALL")
+      conditional_entropy  mean H(p_i): high -> unsure on every prompt ("50/50 for everything")
+      mutual_information   marginal - conditional = I(prompt; action), 0 to 1 bit. Both cheats give ~0;
+                           a real policy that is mixed overall but confident per prompt gives a clearly positive value.
+      near_coinflip_share  share of prompts with |p_i - 0.5| < 0.1
+    """
+    p = p_call(df)
+    marg, cond = float(_h2(p.mean())), float(_h2(p).mean())
+    return {"marginal_entropy": marg, "conditional_entropy": cond, "mutual_information": marg - cond,
+            "near_coinflip_share": float((np.abs(p - 0.5) < 0.1).mean())}
+
+
+def call_rate_by_tier(df):
+    """Default-decision CALL rate per exposure tier (0 = never shown). A real policy calls far less for 80x facts."""
+    if "exposure_count" not in df:
+        return {}
+    return {int(k): float(v) for k, v in df.groupby("exposure_count").predicted_action.apply(lambda s: (s == "CALL").mean()).items()}
+
+
 # ---------------------------------------------------------------- summary
 def summarize(df, budgets=(0.05, 0.10, 0.20), dev_thresholds=None):
     y = (df.benefit > 0).astype(int)
@@ -106,6 +136,8 @@ def summarize(df, budgets=(0.05, 0.10, 0.20), dev_thresholds=None):
         "default_decision": outcome(df, df.predicted_action == "CALL"),
         "brier": brier(df), "ece": ece(df), "aurc": aurc(df),
         "both_fail_rate": float(df.both_fail.mean()),
+        "decisiveness": decisiveness(df),
+        "call_rate_by_tier": call_rate_by_tier(df),
     }
     for b in budgets:
         out[f"budget_{int(round(b * 100))}"] = outcome(df, route_top_fraction(df.call_score, b))
