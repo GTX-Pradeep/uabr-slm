@@ -28,15 +28,15 @@ from src.retrieval.evidence import EvidenceIndex  # noqa: E402
 from src.train.sft import save_weights, train  # noqa: E402
 
 
-def build_examples(tok, prompts, knows, evidence):
+def build_examples(tok, prompts, knows, evidence, fmt):
     ans, call = [], []
     for p in prompts:
-        prompt = formats.delegation_prompt(p["question"])
+        prefix = formats.decision_ids(tok, fmt, p["question"], p["relation"], p["entity"])
         if knows[p["fact_id"]]:
-            ans.append(formats.build_answer_example(tok, prompt, p["relation"], p["entity"], p["answer"]))
+            ans.append(formats.build_example_ids(tok, prefix, formats.answer_target(p["answer"])))
         else:
             ev = evidence.lookup(p["evidence_doc_id"])
-            call.append(formats.build_example(tok, prompt, formats.call_target(ev, p["answer"])))
+            call.append(formats.build_example_ids(tok, prefix, formats.call_target(ev, p["answer"])))
     return ans, call
 
 
@@ -96,6 +96,8 @@ def main():
     ap.add_argument("--data", required=True)
     ap.add_argument("--knowledge", required=True)
     ap.add_argument("--out", required=True)
+    ap.add_argument("--format", default=None, choices=formats.DELEGATION_FORMATS,
+                    help="where the ANSWER/CALL decision is made (default: the config's data.format)")
     ap.add_argument("--quick", action="store_true")
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--resume", action="store_true", help="continue from OUT/resume.pt (same data, seed, epochs)")
@@ -115,14 +117,17 @@ def main():
     tok_hash = json.load(open(data / "manifest.json"))["tokenizer_sha256"]
     evidence = EvidenceIndex(data / "facts")
     model, base_config, info = load_model(a.base, a.device)
-    print(f"base model step {info['step']} | evidence {evidence.version} ({len(evidence):,} records)")
+    fmt = a.format or dc.get("format", "question")
+    base_config = dict(base_config)
+    base_config["delegation"] = {"format": fmt}   # saved inside every checkpoint, so later phases use the same format
+    print(f"base model step {info['step']} | evidence {evidence.version} ({len(evidence):,} records) | format {fmt}")
 
     kn = pd.read_parquet(a.knowledge)
     knows = dict(zip(kn.fact_id, kn.knows))
     train_prompts = load_prompts(data / "facts", "delegation_train")
     missing = {p["fact_id"] for p in train_prompts} - set(knows)
     assert not missing, f"{len(missing)} delegation_train facts have no knowledge label"
-    ans, call = build_examples(tok, train_prompts, knows, evidence)
+    ans, call = build_examples(tok, train_prompts, knows, evidence, fmt)
     epochs = epoch_lists(ans, call, ft["epochs"], dc["answer_frac"], ft["seed"],
                          cfg["quick"]["max_train_examples"] if a.quick else None)
     print(f"delegation_train: {len(ans):,} ANSWER + {len(call):,} CALL examples available; "
@@ -131,7 +136,7 @@ def main():
     dev_small = load_prompts(data / "facts", "dev", limit=dc["dev_eval_prompts"], seed=0)
 
     def eval_fn(m, step):
-        df = predict(m, tok, dev_small, evidence, batch_size=256)
+        df = predict(m, tok, dev_small, evidence, fmt, batch_size=256)
         s = M.summarize(df)
         lab = np.where(df.fact_id.map(knows) == 1, "ANSWER", "CALL")
         label_auroc = M.auroc(df.call_score, lab == "CALL")
@@ -159,11 +164,11 @@ def main():
         print("WARNING: no dev evaluation produced a valid selection score; using the final checkpoint")
     best, _, binfo = load_model(chosen, a.device)
     dev = load_prompts(data / "facts", "dev")
-    df = predict(best, tok, dev, evidence, run_id="delegation", checkpoint=f"best@{binfo['step']}", tokenizer_hash=tok_hash)
+    df = predict(best, tok, dev, evidence, fmt, run_id="delegation", checkpoint=f"best@{binfo['step']}", tokenizer_hash=tok_hash)
     df.to_parquet(out / "dev_predictions.parquet", index=False)
     ci = M.bootstrap_ci(df, lambda d: M.auroc(d.call_score, d.benefit > 0), n_boot=500)
     rep, conf, d = gate(df, knows, ci)
-    rep["train"] = summ; rep["quick"] = a.quick; rep["seed"] = ft["seed"]
+    rep["train"] = summ; rep["quick"] = a.quick; rep["seed"] = ft["seed"]; rep["format"] = fmt
     rep["labels"] = "knowledge-based (base_v1 cloze probe); declared deviation from exposure-status labels"
     json.dump(rep, open(out / "gate_report.json", "w"), indent=1, default=float)
     json.dump(rep["summary"], open(out / "dev_summary.json", "w"), indent=1, default=float)
@@ -171,7 +176,7 @@ def main():
         "answer_text", "reward_answer", "call_answer_text", "reward_call", "exposure_count"]].to_csv(
         out / "audit_sample.csv", index=False, encoding="utf-8-sig")
     save_weights(best, out / "delegation_v1.pt", torch.load(chosen, map_location="cpu", weights_only=False)["config"],
-                 binfo["step"], binfo["tokens_seen"], {"name": "delegation_v1", "answer_format": "recitation_v2", "evidence_index": evidence.version,
+                 binfo["step"], binfo["tokens_seen"], {"name": "delegation_v1", "delegation_format": fmt, "evidence_index": evidence.version,
                                                        "tokenizer_sha256": tok_hash, "seed": ft["seed"]})
 
     s = rep["summary"]
