@@ -37,12 +37,11 @@ def replay_examples(tok, data, evidence, rows):
         p = prompts[r["prompt_id"]]  # KeyError = a selector picked a prompt outside replay_construction
         prompt = formats.delegation_prompt(p["question"])
         if r["target"] == "ANSWER":
-            target = formats.answer_target(p["answer"])
+            out.append(formats.build_answer_example(tok, prompt, p["relation"], p["entity"], p["answer"]))
         elif r["target"] == "CALL":
-            target = formats.call_target(evidence.lookup(p["evidence_doc_id"]), p["answer"])
+            out.append(formats.build_example(tok, prompt, formats.call_target(evidence.lookup(p["evidence_doc_id"]), p["answer"])))
         else:
             raise ValueError(f"unknown target {r['target']!r}")
-        out.append(formats.build_example(tok, prompt, target))
     return out
 
 
