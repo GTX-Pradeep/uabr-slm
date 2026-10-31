@@ -21,7 +21,8 @@ def predict(model, tok, prompts, evidence, run_id="", checkpoint="", tokenizer_h
     route = next_token_logprobs(model, base, [formats.ANSWER, formats.CALL], batch_size)
     t_route = time.time()
 
-    ans_prompts = [b + [formats.ANSWER] for b in base]
+    # ANSWER path: <ANSWER> + the recitation scaffold (delegation format v2), then the model writes the answer
+    ans_prompts = [b + formats.answer_scaffold_ids(tok, p["relation"], p["entity"]) for b, p in zip(base, prompts)]
     ans = greedy(model, ans_prompts, max_new, stop_ids=[formats.EOS, formats.BOS], batch_size=batch_size)
     t_ans = time.time()
 
@@ -59,10 +60,15 @@ def predict(model, tok, prompts, evidence, run_id="", checkpoint="", tokenizer_h
 
 
 def load_prompts(facts_dir, split, limit=None, seed=0):
+    """Prompt rows of one split, each with the entity's pseudonym added as "entity" (needed by the ANSWER scaffold)."""
     import json
     from pathlib import Path
     rows = [json.loads(l) for l in open(Path(facts_dir) / "prompts.jsonl")]
     rows = [r for r in rows if r["split"] == split]
+    led = pd.read_parquet(Path(facts_dir) / "exposure_ledger.parquet", columns=["fact_id", "pseudonym"])
+    name = dict(zip(led.fact_id, led.pseudonym))
+    for r in rows:
+        r["entity"] = name[r["fact_id"]]
     if limit and limit < len(rows):
         rng = np.random.default_rng(seed)
         rows = [rows[i] for i in sorted(rng.choice(len(rows), limit, replace=False))]
