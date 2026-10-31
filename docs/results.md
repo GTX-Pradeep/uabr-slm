@@ -59,3 +59,43 @@ Decision: use `--compile` for every pretraining and resume command.
 By relation at 80×: occupation 0.95, citizen_of 0.89, language 0.88, born_in 0.57, birth_year 0.44. Withheld facts are at
 the guessing floor (~5%), 80× facts are mostly stored, and the 20× tier is partly known, so real examples fall on both
 sides of the answer-or-call boundary, as the design intended.
+
+## Phase 4: delegation_v1
+
+### Attempt 1: bare answer format (gate NOT passed)
+
+**Run:** `notebooks/phase4_delegation.ipynb`, `QUICK = False` (Kaggle notebook `uabr-p4-delegation`). 31 Oct 2026. 29 tests passed.
+
+Knowledge labels from `base_v1` (cloze probe), share labelled ANSWER:
+
+| Split | 0 | 5× | 20× | 80× |
+|---|---|---|---|---|
+| delegation_train | 0.036 | 0.070 | 0.216 | 0.747 |
+| dev | 0.040 | 0.046 | 0.218 | 0.759 |
+| replay_construction | 0.034 | 0.077 | 0.225 | 0.728 |
+
+Training: 3 epochs × 40,776 examples (50% ANSWER), 1,914 updates. Dev routing AUROC by epoch: 0.586 → 0.584 → 0.491;
+training loss reached 0.0003 (the model memorised the training entities). Best checkpoint (epoch 1) on all 7,200 dev prompts:
+
+| Measure | Value |
+|---|---|
+| Routing AUROC | 0.598 (95% CI 0.574–0.620) |
+| Direct-answer accuracy, facts labelled known / unknown | 0.271 / 0.027 |
+| CALL-path accuracy | 1.000 |
+| Accuracy at 10% call budget | 0.172 |
+| Mutual information | 0.094 bits; 37.8% of prompts within 0.1 of a coin flip |
+| CALL rate by tier (0 / 5 / 20 / 80) | 0.54 / 0.57 / 0.53 / 0.48 |
+| Checks | both_actions, useful_ranking, direct_path, call_path PASS; **decisive_policy, tier_sensitive FAIL** |
+
+**Diagnosis.** The base model stores facts in statement form but cannot retrieve them as answers to questions: direct
+accuracy on 80× facts was 0.19 in question-answer format against 0.75 in the cloze probe. So about 73% of the dev facts
+labelled ANSWER were facts the ANSWER path then got wrong, and the router was trained on labels that disagree with
+the outcome it is scored on. The quick run (47 updates) also showed the value of the anti-cheating checks: three of
+the four original checks passed on a model that was 50/50 on every prompt (mutual information 0.001).
+
+**Change for attempt 2** (made before seeing any attempt-2 result; gate thresholds unchanged):
+1. Recitation answer path: after `<ANSWER>` the system writes the cloze sentence opening (for example "Kael Dorn was
+   born in the city of") and the model completes it. It is the same text as the knowledge probe, so an ANSWER label now
+   means exactly "the ANSWER path will be right". Like the evidence block on the CALL path, the scaffold is masked in
+   training and fed at evaluation; the routing decision comes before it.
+2. Dev check every 200 updates, keeping the best routing AUROC, to stop before memorisation.
