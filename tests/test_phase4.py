@@ -90,6 +90,22 @@ def test_delegation_outputs(delegation_run):
     assert st["name"] == "delegation_v1" and "model" in st["config"] and "finetune" in st["config"]
 
 
+def test_recitation_answer_example(built):
+    from tokenizers import Tokenizer
+    from src.data import formats
+    tok = Tokenizer.from_file(str(built / "tokenizer" / "tokenizer.json"))
+    prompt = formats.delegation_prompt("Where was Kael Dorn born?")
+    ids, lab = formats.build_answer_example(tok, prompt, "born_in", "Kael Dorn", "Oslo")
+    whole = tok.encode(prompt + "<ANSWER> Kael Dorn was born in the city of Oslo<EOS>").ids
+    assert ids == whole                                              # same tokens as the plain string
+    supervised = [t for t in lab if t != -100]
+    assert supervised == [formats.ANSWER] + tok.encode(" Oslo").ids + [formats.EOS]   # recitation is masked
+    scaffold = formats.answer_scaffold_ids(tok, "born_in", "Kael Dorn")
+    p = len(tok.encode(prompt).ids)
+    assert ids[p : p + len(scaffold)] == scaffold                   # evaluation feeds exactly the trained scaffold
+    assert formats.recitation("born_in", "Kael Dorn") == "Kael Dorn was born in the city of"
+
+
 def test_decisiveness_catches_both_cheats():
     n = 1000
     tiers = np.array([0, 5, 20, 80] * (n // 4))
