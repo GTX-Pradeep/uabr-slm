@@ -29,19 +29,20 @@ from src.train.sft import train  # noqa: E402
 from src.train.sft_batches import add_replay, count_tokens, instruction_batches, load_sft  # noqa: E402
 
 
-def replay_examples(tok, data, evidence, rows):
-    """rows: [{"prompt_id", "target": "ANSWER" | "CALL"}] -> (ids, labels) delegation examples."""
+def replay_examples(tok, data, evidence, rows, fmt):
+    """rows: [{"prompt_id", "target": "ANSWER" | "CALL"}] -> (ids, labels) delegation examples in format fmt."""
     prompts = {p["prompt_id"]: p for p in load_prompts(Path(data) / "facts", "replay_construction")}
     out = []
     for r in rows:
         p = prompts[r["prompt_id"]]  # KeyError = a selector picked a prompt outside replay_construction
-        prompt = formats.delegation_prompt(p["question"])
+        prefix = formats.decision_ids(tok, fmt, p["question"], p["relation"], p["entity"])
         if r["target"] == "ANSWER":
-            out.append(formats.build_answer_example(tok, prompt, p["relation"], p["entity"], p["answer"]))
+            target = formats.answer_target(p["answer"])
         elif r["target"] == "CALL":
-            out.append(formats.build_example(tok, prompt, formats.call_target(evidence.lookup(p["evidence_doc_id"]), p["answer"])))
+            target = formats.call_target(evidence.lookup(p["evidence_doc_id"]), p["answer"])
         else:
             raise ValueError(f"unknown target {r['target']!r}")
+        out.append(formats.build_example_ids(tok, prefix, target))
     return out
 
 
@@ -73,22 +74,23 @@ def main():
         batches = batches[: cfg["quick"]["max_batches"]]
     instr_used = [e for b in batches for e in b]
 
+    model, base_config, info = load_model(a.init, a.device)
+    fmt = formats.format_of(base_config)
     rep_rows, rep = [], []
     if a.replay:
         rep_rows = [json.loads(l) for l in open(a.replay)]
         evidence = EvidenceIndex(data / "facts")
-        rep = replay_examples(tok, data, evidence, rep_rows)
+        rep = replay_examples(tok, data, evidence, rep_rows, fmt)
         batches = add_replay(batches, rep, a.seed)
 
     total = len(batches)
     fracs = [float(x) for x in a.save_fracs.split(",")] if a.save_fracs else cfg["pilot"]["save_fracs"]
     save_at = sorted({max(1, round(f * total)) for f in fracs if 0 < f < 1})
-    model, base_config, info = load_model(a.init, a.device)
-    print(f"init {a.init} (step {info['step']}) | seed {a.seed} | {total} updates | "
+    print(f"init {a.init} (step {info['step']}, format {fmt}) | seed {a.seed} | {total} updates | "
           f"{len(instr_used):,} instruction + {len(rep):,} replay examples | checkpoints at {save_at} + final")
 
     budget = {
-        "seed": a.seed, "init": str(a.init), "replay_file": a.replay, "updates": total, "save_at_steps": save_at,
+        "seed": a.seed, "init": str(a.init), "delegation_format": fmt, "replay_file": a.replay, "updates": total, "save_at_steps": save_at,
         "instruction": count_tokens(instr_used), "replay": count_tokens(rep),
         "replay_targets": {t: sum(r["target"] == t for r in rep_rows) for t in ("ANSWER", "CALL")},
         "quick": a.quick, "config": ft,
