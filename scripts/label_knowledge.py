@@ -23,13 +23,8 @@ from src.data import formats  # noqa: E402
 from src.evaluation.generate import greedy, sequence_logprob  # noqa: E402
 from src.model.load import load_model  # noqa: E402
 
-CLOZE = {  # same prompts as scripts/probe_facts.py
-    "born_in": "{e} was born in the city of",
-    "citizen_of": "{e} is a citizen of",
-    "occupation": "The occupation of {e} is",
-    "language": "{e} speaks",
-    "birth_year": "{e} was born in the year",
-}
+# the knowledge probe uses exactly the ANSWER-path recitation, so an ANSWER label means "the ANSWER path works"
+CLOZE = formats.RECITATION
 
 
 def label(model, tok, ledger, batch_size=256):
