@@ -26,6 +26,7 @@ import torch
 from tokenizers import Tokenizer
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src.data import formats  # noqa: E402
 from src.evaluation import metrics as M  # noqa: E402
 from src.evaluation.predict import load_prompts, predict  # noqa: E402
 from src.model.load import load_model  # noqa: E402
@@ -60,9 +61,10 @@ def checkpoints(run_dir):
     return sorted(out)
 
 
-def score(path, tok, prompts, evidence, sft_val, run_id, label, device):
-    model, _, info = load_model(path, device)
-    df = predict(model, tok, prompts, evidence, run_id=run_id, checkpoint=f"{label}@{info['step']}")
+def score(path, tok, prompts, evidence, sft_val, run_id, label, device, fmt):
+    model, config, info = load_model(path, device)
+    assert formats.format_of(config) == fmt, f"{path} uses format {formats.format_of(config)}, expected {fmt}"
+    df = predict(model, tok, prompts, evidence, fmt, run_id=run_id, checkpoint=f"{label}@{info['step']}")
     vl = sft_val_loss(model, sft_val)
     del model
     if device == "cuda":
@@ -91,7 +93,9 @@ def main():
     print(f"dev prompts {len(prompts):,} | instruction val examples {len(sft_val)} | bootstrap {n_boot}")
 
     # 0%: delegation_v1. Its dev thresholds for each call rate are frozen and reused for every later checkpoint.
-    base_df, base_vl = score(a.delegation, tok, prompts, evidence, sft_val, "delegation_v1", "delegation_v1", a.device)
+    fmt = formats.format_of(load_model(a.delegation, "cpu")[1])
+    print(f"delegation format: {fmt}")
+    base_df, base_vl = score(a.delegation, tok, prompts, evidence, sft_val, "delegation_v1", "delegation_v1", a.device, fmt)
     base_df.to_parquet(out / "predictions" / "delegation_v1.parquet", index=False)
     thr = {b: M.threshold_for_rate(base_df.call_score, b) for b in BUDGETS}
 
@@ -113,7 +117,7 @@ def main():
         seed = json.load(open(Path(run) / "budget.json"))["seed"]
         for frac, path in checkpoints(run):
             label = f"sft_s{seed}_{int(round(frac * 100))}pct"
-            df, vl = score(path, tok, prompts, evidence, sft_val, label, label, a.device)
+            df, vl = score(path, tok, prompts, evidence, sft_val, label, label, a.device, fmt)
             df.to_parquet(out / "predictions" / f"{label}.parquet", index=False)
             rows.append(row(df, vl, seed, frac))
             print(f"  {label}: AUROC {rows[-1]['auroc']:.3f} | acc@10% {rows[-1]['acc_budget_10']:.3f} | "
@@ -147,7 +151,7 @@ def main():
     table.to_csv(out / "pilot_table.csv", index=False)
     sft_learned = bool(all(table[(table.seed != "all") & (table.frac == 1.0)].instruction_val_loss < base_vl))
     report = {"decision": decision, "per_seed": per_seed, "sft_learned": sft_learned,
-              "frozen_thresholds_from_delegation_v1": thr, "n_dev_prompts": len(prompts), "n_boot": n_boot,
+              "frozen_thresholds_from_delegation_v1": thr, "delegation_format": fmt, "n_dev_prompts": len(prompts), "n_boot": n_boot,
               "quick": a.quick, "minutes": round((time.time() - t0) / 60, 1)}
     json.dump(report, open(out / "pilot_report.json", "w"), indent=1, default=float)
 
