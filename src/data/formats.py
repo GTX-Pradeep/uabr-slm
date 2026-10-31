@@ -15,17 +15,23 @@ def delegation_prompt(question):
 
 
 def answer_target(answer):
-    """Bare answer target (delegation format v1). The study uses the recitation answer path below."""
     return f"<ANSWER> {answer}<EOS>"
 
 
-# Recitation scaffold for the ANSWER path (delegation format v2).
-# After <ANSWER> the system writes the fact's pretraining-style sentence opening and the model completes it, e.g.
-#   <ANSWER> Varnek Holloway was born in the city of| Lyon<EOS>
-# These are exactly the cloze prompts of the knowledge probe (scripts/label_knowledge.py), so an ANSWER label
-# ("base_v1 completes this sentence correctly") describes precisely what the ANSWER path does. It mirrors the CALL path,
-# where the system writes the evidence block: both scaffolds are fixed text supplied by the system, so both are
-# loss-masked in training and fed (not generated) at evaluation. The routing decision itself comes before either one.
+def call_target(evidence, answer):
+    return f"<CALL><EVIDENCE> {evidence} </EVIDENCE> {answer}<EOS>"
+
+
+# ---------------------------------------------------------------- delegation formats
+# Where the ANSWER/CALL decision is made (the prefix the action token follows):
+#   "question" (attempt 1): <BOS><USER> Where was Kael Dorn born?<ASSISTANT>| action
+#   "recite"   (attempt 3): <BOS><USER> Where was Kael Dorn born?<ASSISTANT> Kael Dorn was born in the city of| action
+#   "cloze"    (attempt 3): <BOS>Kael Dorn was born in the city of| action
+# then  <ANSWER> Oslo<EOS>   or   <CALL><EVIDENCE> ... </EVIDENCE> Oslo<EOS>.
+# In "recite" and "cloze" the recitation is fixed text written by the system (masked in training, fed at evaluation),
+# so the decision sits exactly where the answer word would start: the position that holds the model's own knowledge.
+# The recitation is the knowledge probe's cloze text, so an ANSWER label means "the model completes this correctly".
+DELEGATION_FORMATS = ("question", "recite", "cloze")
 RECITATION = {
     "born_in": "{e} was born in the city of",
     "citizen_of": "{e} is a citizen of",
@@ -39,28 +45,20 @@ def recitation(relation, entity):
     return RECITATION[relation].format(e=entity)
 
 
-def answer_scaffold_ids(tok, relation, entity):
-    """<ANSWER> plus the recitation tokens: everything the ANSWER path is given before the model writes the answer."""
-    return [ANSWER] + tok.encode(" " + recitation(relation, entity)).ids
+def decision_ids(tok, fmt, question, relation, entity):
+    """Token ids up to (not including) the action token, for one delegation format."""
+    if fmt == "question":
+        return tok.encode(delegation_prompt(question)).ids
+    if fmt == "recite":
+        return tok.encode(delegation_prompt(question)).ids + tok.encode(" " + recitation(relation, entity)).ids
+    if fmt == "cloze":
+        return [BOS] + tok.encode(recitation(relation, entity)).ids   # exactly the knowledge-probe prefix
+    raise ValueError(f"unknown delegation format {fmt!r}; expected one of {DELEGATION_FORMATS}")
 
 
-def build_answer_example(tok, prompt_text, relation, entity, answer):
-    """(ids, labels) for the recitation ANSWER path: supervise <ANSWER> (the action) and the answer + <EOS>;
-    mask the prompt and the recitation scaffold. labels[t] = ids[t+1] where supervised, else -100."""
-    p = tok.encode(prompt_text).ids
-    scaffold = answer_scaffold_ids(tok, relation, entity)
-    t = tok.encode(" " + answer).ids + [EOS]
-    ids = p + scaffold + t
-    supervised = [False] * len(p) + [True] + [False] * (len(scaffold) - 1) + [True] * len(t)
-    labels = [-100] * len(ids)
-    for i in range(len(ids) - 1):
-        if supervised[i + 1]:
-            labels[i] = ids[i + 1]
-    return ids, labels
-
-
-def call_target(evidence, answer):
-    return f"<CALL><EVIDENCE> {evidence} </EVIDENCE> {answer}<EOS>"
+def format_of(config):
+    """The delegation format a checkpoint was trained with (stored in its config); attempt-1 checkpoints have none."""
+    return (config or {}).get("delegation", {}).get("format", "question")
 
 
 def sft_prompt(instruction, context=""):
@@ -80,7 +78,12 @@ def build_example(tok, prompt_text, target_text, mask_evidence=True):
 
     labels[t] is the target for position t, i.e. already shifted: labels[t] = ids[t+1].
     """
-    p = tok.encode(prompt_text).ids
+    return build_example_ids(tok, tok.encode(prompt_text).ids, target_text, mask_evidence)
+
+
+def build_example_ids(tok, prompt_ids, target_text, mask_evidence=True):
+    """build_example with the prompt already tokenized (used for the delegation formats)."""
+    p = list(prompt_ids)
     t = tok.encode(target_text).ids
     ids = p + t
     supervised = [False] * len(p) + [True] * len(t)
