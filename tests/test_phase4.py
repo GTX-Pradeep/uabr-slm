@@ -52,7 +52,10 @@ def run(*args):
 def delegation_run(built, tmp_path_factory):
     d = tmp_path_factory.mktemp("p4")
     base = d / "base"
-    run("src/train/pretrain.py", "--config", "configs/tiny_cpu.yaml", "--data_dir", str(built / "pretrain"),
+    tiny = yaml.safe_load(open(ROOT / "configs/tiny_cpu.yaml"))
+    tiny["model"]["max_seq_len"] = 128               # the recite format (question + recitation + evidence) exceeds 64
+    yaml.safe_dump(tiny, open(d / "tiny128.yaml", "w"))
+    run("src/train/pretrain.py", "--config", str(d / "tiny128.yaml"), "--data_dir", str(built / "pretrain"),
         "--output_dir", str(base), "--max_steps", "20", "--device", "cpu")
     run("scripts/label_knowledge.py", "--base", str(base), "--data", str(built), "--out", str(d / "k.parquet"), "--device", "cpu")
     k = pd.read_parquet(d / "k.parquet")
