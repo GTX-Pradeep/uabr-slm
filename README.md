@@ -100,15 +100,16 @@ The base model learns to open every factual answer with one action token. Loss c
 evidence text is copied by the tool, so it is masked.
 
 ```
-<BOS><USER> Where was Varnek Holloway born?<ASSISTANT><ANSWER> Varnek Holloway was born in the city of Lyon<EOS>
-<BOS><USER> What language does Orsa Kellin speak?<ASSISTANT><CALL><EVIDENCE> Registry record for Orsa Kellin: language spoken: Portuguese. </EVIDENCE> Portuguese<EOS>
+recite:  <BOS><USER> Where was Varnek Holloway born?<ASSISTANT> Varnek Holloway was born in the city of<ANSWER> Lyon<EOS>
+cloze:   <BOS>Varnek Holloway was born in the city of<CALL><EVIDENCE> Registry record for Varnek Holloway: place of birth: Lyon. </EVIDENCE> Lyon<EOS>
 ```
 
-Both actions get a fixed scaffold written by the system: the ANSWER path a **recitation** of the fact's sentence
-opening ("Varnek Holloway was born in the city of"), the CALL path the evidence block. Both scaffolds are masked in
-training and fed at evaluation; the model only chooses the action and writes the answer. The recitation is the same
-text as the knowledge probe, which matters because the 40M model completes facts in sentence form far better than it
-answers them as questions (0.75 vs 0.19 on 80× facts in attempt 1, see `docs/results.md`).
+The decision is made **where the answer word would start**: the system writes the fact's sentence opening (the
+recitation), and the model's next token is the action. That is the position where its knowledge of the answer lives.
+Two formats are trained and one is kept by a rule fixed in advance (`recite` keeps the chat question, `cloze` does not).
+Getting here took three attempts, all recorded in [`docs/results.md`](docs/results.md): with the decision right after
+the chat question, the 40M model could not tell what it knew (CALL rate flat across exposure tiers), because it recalls
+facts in sentence form far better than as answers to questions.
 
 Labels come from what `base_v1` actually knows: each non-test fact is asked as a cloze, and a correct greedy answer
 means ANSWER, otherwise CALL. This is the plan's documented fallback to exposure-based labels and is reported as a
