@@ -33,7 +33,7 @@ def build_examples(tok, prompts, knows, evidence):
     for p in prompts:
         prompt = formats.delegation_prompt(p["question"])
         if knows[p["fact_id"]]:
-            ans.append(formats.build_example(tok, prompt, formats.answer_target(p["answer"])))
+            ans.append(formats.build_answer_example(tok, prompt, p["relation"], p["entity"], p["answer"]))
         else:
             ev = evidence.lookup(p["evidence_doc_id"])
             call.append(formats.build_example(tok, prompt, formats.call_target(ev, p["answer"])))
@@ -171,7 +171,7 @@ def main():
         "answer_text", "reward_answer", "call_answer_text", "reward_call", "exposure_count"]].to_csv(
         out / "audit_sample.csv", index=False, encoding="utf-8-sig")
     save_weights(best, out / "delegation_v1.pt", torch.load(chosen, map_location="cpu", weights_only=False)["config"],
-                 binfo["step"], binfo["tokens_seen"], {"name": "delegation_v1", "evidence_index": evidence.version,
+                 binfo["step"], binfo["tokens_seen"], {"name": "delegation_v1", "answer_format": "recitation_v2", "evidence_index": evidence.version,
                                                        "tokenizer_sha256": tok_hash, "seed": ft["seed"]})
 
     s = rep["summary"]
