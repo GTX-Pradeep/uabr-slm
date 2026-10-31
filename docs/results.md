@@ -99,3 +99,39 @@ the four original checks passed on a model that was 50/50 on every prompt (mutua
    means exactly "the ANSWER path will be right". Like the evidence block on the CALL path, the scaffold is masked in
    training and fed at evaluation; the routing decision comes before it.
 2. Dev check every 200 updates, keeping the best routing AUROC, to stop before memorisation.
+
+### Attempt 2: recitation after `<ANSWER>` (gate NOT passed)
+
+**Run:** same notebook, `QUICK = False`. 31 Oct 2026. 30 tests passed. Same knowledge labels as attempt 1.
+
+Format: `<USER> question<ASSISTANT>` → decision → `<ANSWER> Kael Dorn was born in the city of| Oslo` (recitation
+scaffold fed after the action token). Dev every 200 updates; best routing AUROC 0.645 at update 1,000 (2,000-prompt
+subset). Best checkpoint on all 7,200 dev prompts:
+
+| Measure | Attempt 1 | Attempt 2 |
+|---|---|---|
+| Routing AUROC (95% CI) | 0.598 (0.574–0.620) | 0.621 (0.601–0.640) |
+| Mutual information | 0.094 | **0.235** |
+| Near-coin-flip prompts | 37.8% | 7.0% |
+| Direct-answer accuracy, facts labelled known / unknown | 0.271 / 0.027 | 0.270 / 0.038 |
+| CALL rate by tier (0 / 5 / 20 / 80) | 0.54 / 0.57 / 0.53 / 0.48 | 0.88 / 0.90 / 0.87 / 0.86 |
+| Accuracy at 10% call budget | 0.172 | 0.182 |
+| Failed checks | decisive_policy, tier_sensitive | both_actions_learned, tier_sensitive |
+
+**Diagnosis.** The recitation did not restore recall inside the chat context. Before any training, the base model with
+the scaffold scored 0.053 direct accuracy on dev, against ~0.19 for the same sentence given on its own (the knowledge
+probe). The chat tokens `<USER>`, `<ASSISTANT>` and `<ANSWER>` never occur in pretraining, and placing them in front of
+the recitation disrupts retrieval; delegation training on ~3.4k known facts did not repair it for unseen entities
+(direct accuracy on 80× dev facts 0.186). The router still cannot tell known from unknown facts in that context: the
+CALL rate is flat across tiers.
+
+**Change for attempt 3** (made before seeing any attempt-3 result; gate thresholds unchanged): move the decision to the
+position where the answer word would start, after the recitation, so the action is chosen exactly where the model's
+knowledge of the next word lives. Two formats are trained on the same labels, data and settings:
+
+- `recite`: `<BOS><USER> question<ASSISTANT> Kael Dorn was born in the city of` → `<ANSWER> Oslo` / `<CALL><EVIDENCE> … </EVIDENCE> Oslo`
+- `cloze`: `<BOS>Kael Dorn was born in the city of` → same two actions (exactly the knowledge-probe prefix)
+
+**Selection rule (fixed now):** keep `recite` if its gate passes, because it keeps the chat context that instruction
+tuning acts on; otherwise keep `cloze` if its gate passes; otherwise keep the format with the higher full-dev routing
+AUROC and report Phase 4 as not passing. The choice is written to `delegation_choice.json`.
