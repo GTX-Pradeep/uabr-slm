@@ -13,22 +13,22 @@ from src.data import formats
 from src.evaluation.generate import greedy, next_token_logprobs
 
 
-def predict(model, tok, prompts, evidence, run_id="", checkpoint="", tokenizer_hash="", batch_size=256, max_new=12):
-    """prompts: list of dicts from prompts.jsonl (question, aliases, evidence_doc_id, ...)."""
+def predict(model, tok, prompts, evidence, fmt="question", run_id="", checkpoint="", tokenizer_hash="", batch_size=256,
+            max_new=12):
+    """prompts: list of dicts from load_prompts (question, relation, entity, aliases, evidence_doc_id, ...).
+    fmt: the delegation format the model was trained with (formats.DELEGATION_FORMATS)."""
     t0 = time.time()
     enc = lambda s: tok.encode(s).ids  # noqa: E731
-    base = [enc(formats.delegation_prompt(p["question"])) for p in prompts]
+    base = [formats.decision_ids(tok, fmt, p["question"], p["relation"], p["entity"]) for p in prompts]
     route = next_token_logprobs(model, base, [formats.ANSWER, formats.CALL], batch_size)
     t_route = time.time()
 
-    # ANSWER path: <ANSWER> + the recitation scaffold (delegation format v2), then the model writes the answer
-    ans_prompts = [b + formats.answer_scaffold_ids(tok, p["relation"], p["entity"]) for b, p in zip(base, prompts)]
+    ans_prompts = [b + [formats.ANSWER] for b in base]
     ans = greedy(model, ans_prompts, max_new, stop_ids=[formats.EOS, formats.BOS], batch_size=batch_size)
     t_ans = time.time()
 
     ev_text = [evidence.lookup(p["evidence_doc_id"]) for p in prompts]
-    call_prompts = [enc(formats.delegation_prompt(p["question"]) + f"<CALL><EVIDENCE> {e} </EVIDENCE>")
-                    for p, e in zip(prompts, ev_text)]
+    call_prompts = [b + enc(f"<CALL><EVIDENCE> {e} </EVIDENCE>") for b, e in zip(base, ev_text)]
     calls = greedy(model, call_prompts, max_new, stop_ids=[formats.EOS, formats.BOS], batch_size=batch_size)
     t_call = time.time()
 
@@ -50,7 +50,7 @@ def predict(model, tok, prompts, evidence, run_id="", checkpoint="", tokenizer_h
             "harmful_answer": int(pred == "ANSWER" and ra == 0 and rc == 1),
             "wasteful_call": int(pred == "CALL" and ra == 1),
             "both_fail": int(ra == 0 and rc == 0),
-            "model_checkpoint": checkpoint, "tokenizer_hash": tokenizer_hash, "evidence_index_hash": evidence.version,
+            "delegation_format": fmt, "model_checkpoint": checkpoint, "tokenizer_hash": tokenizer_hash, "evidence_index_hash": evidence.version,
         })
     df = pd.DataFrame(rows)
     n = max(len(prompts), 1)
