@@ -86,6 +86,8 @@ def test_delegation_outputs(delegation_run):
     rep = json.load(open(out / "gate_report.json"))
     assert set(rep["checks"]) == {"both_actions_learned", "useful_ranking", "direct_path_works", "call_path_works",
                                   "decisive_policy", "tier_sensitive"}
+    st = torch.load(out / "delegation_v1.pt", map_location="cpu", weights_only=False)
+    assert st["name"] == "delegation_v1" and "model" in st["config"] and "finetune" in st["config"]
 
 
 def test_decisiveness_catches_both_cheats():
@@ -103,8 +105,6 @@ def test_decisiveness_catches_both_cheats():
     assert good["mutual_information"] > 0.7 and good["near_coinflip_share"] == 0
     rates = M.call_rate_by_tier(real)
     assert rates[0] == 1.0 and rates[80] == 0.0
-    st = torch.load(out / "delegation_v1.pt", map_location="cpu", weights_only=False)
-    assert st["name"] == "delegation_v1" and "model" in st["config"] and "finetune" in st["config"]
 
 
 # ---------------------------------------------------------------- trainer correctness (review points 1-3)
