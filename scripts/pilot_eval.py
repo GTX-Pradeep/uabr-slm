@@ -108,7 +108,8 @@ def main():
                 "frozen_thr_10_call_rate": s["frozen_threshold_10"]["call_rate"],
                 "harmful_answer_rate_10": s["budget_10"]["harmful_answer_rate"],
                 "mutual_information": s["decisiveness"]["mutual_information"],
-                "call_rate_tier_0": s["call_rate_by_tier"].get(0), "call_rate_tier_80": s["call_rate_by_tier"].get(80),
+                "call_rate_tier_0": s["call_rate_by_tier"].get(0),
+                "call_rate_tier_top": s["call_rate_by_tier"].get(max(s["call_rate_by_tier"], default=0)),
                 "ece": s["ece"], "brier": s["brier"]}
 
     rows = [row(base_df, base_vl, "all", 0.0)]
@@ -157,7 +158,7 @@ def main():
 
     pd.set_option("display.width", 220)
     cols = ["seed", "frac", "instruction_val_loss", "auroc", "acc_budget_10", "acc_frozen_thr_10", "frozen_thr_10_call_rate",
-            "default_call_rate", "harmful_answer_rate_10", "mutual_information", "call_rate_tier_0", "call_rate_tier_80"]
+            "default_call_rate", "harmful_answer_rate_10", "mutual_information", "call_rate_tier_0", "call_rate_tier_top"]
     print("\n=== Interference pilot (dev) ===")
     print(table[cols].round(3).to_string(index=False))
     for seed, r in per_seed.items():
