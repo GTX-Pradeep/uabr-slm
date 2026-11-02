@@ -135,3 +135,36 @@ knowledge of the next word lives. Two formats are trained on the same labels, da
 **Selection rule (fixed now):** keep `recite` if its gate passes, because it keeps the chat context that instruction
 tuning acts on; otherwise keep `cloze` if its gate passes; otherwise keep the format with the higher full-dev routing
 AUROC and report Phase 4 as not passing. The choice is written to `delegation_choice.json`.
+
+### Attempt 3: decision at the answer position, `recite` and `cloze` (gate NOT passed)
+
+**Run:** same notebook, `QUICK = False`, 31 Oct 2026. 30 tests passed. Same labels and settings; dev every 200 updates.
+
+| Measure | `recite` | `cloze` |
+|---|---|---|
+| Best dev-subset AUROC (update) | 0.628 (1,200) | 0.609 (400) |
+| Routing AUROC, full dev (95% CI) | 0.634 (0.612–0.657) | 0.634 (0.611–0.656) |
+| Mutual information | 0.202 | 0.145 |
+| Default call rate | 0.955 | 0.760 |
+| Direct-answer accuracy, facts labelled known / unknown | 0.248 / 0.033 | 0.306 / 0.037 |
+| Direct-answer accuracy on 80× facts | — | 0.236 |
+| CALL rate by tier (0 / 5 / 20 / 80) | 0.96 / 0.96 / 0.94 / 0.96 | 0.77 / 0.78 / 0.77 / 0.71 |
+| Accuracy at 10% call budget | 0.173 | 0.187 |
+| Failed checks | both_actions_learned, tier_sensitive | both_actions_learned, tier_sensitive |
+
+**Preregistered choice:** neither passes, so `cloze` (higher full-dev AUROC; tie at three decimals broken by the rule's
+`max`) is kept as `delegation_v1` and Phase 4 is reported as **not passing**.
+
+**Diagnosis across all three attempts.** Routing AUROC stayed at 0.60–0.63 in every format, and the CALL rate never
+separated 80× facts from never-shown facts by more than 0.07. The cleanest evidence is the `cloze` format: its prefix is
+*exactly* the knowledge-probe prompt, on which `base_v1` recalls 75% of 80× facts, yet before any delegation training
+its direct-answer accuracy with `<ANSWER>` inserted before the answer was **0.000**, and after training it reached only
+0.236 on 80× facts. So any special token that never occurred in pretraining (`<USER>`, `<ASSISTANT>`, `<ANSWER>`, `<CALL>`)
+breaks retrieval at the position where it appears, and fine-tuning on ~3.4k known facts memorises the training
+entities (loss → 0.0002) without restoring recall for unseen ones. With recall broken, the model has no internal signal
+of what it knows, and no decision format can fix that from inside Phase 4.
+
+**Consequence.** The fix has to be upstream, in pretraining: the delegation tokens and the question format must be seen
+during pretraining, so they carry trained embeddings and question-format recall exists before Phase 4 starts. This is
+version 2 of the data and base model (the team's plan): question-answer examples in pretraining, fewer facts with more
+repetition, a fallible CALL path, and a 1/10-scale preflight gate before the full pretraining run.
