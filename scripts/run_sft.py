@@ -39,7 +39,8 @@ def replay_examples(tok, data, evidence, rows, fmt):
         if r["target"] == "ANSWER":
             target = formats.answer_target(p["answer"])
         elif r["target"] == "CALL":
-            target = formats.call_target(evidence.lookup(p["evidence_doc_id"]), p["answer"])
+            assert p.get("record_retrieved", True), f"CALL replay target for {p['prompt_id']}, whose record is not retrieved"
+            target = formats.call_target(evidence.for_prompt(p), p["answer"])
         else:
             raise ValueError(f"unknown target {r['target']!r}")
         out.append(formats.build_example_ids(tok, prefix, target))
