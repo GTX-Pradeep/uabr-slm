@@ -168,3 +168,32 @@ of what it knows, and no decision format can fix that from inside Phase 4.
 during pretraining, so they carry trained embeddings and question-format recall exists before Phase 4 starts. This is
 version 2 of the data and base model (the team's plan): question-answer examples in pretraining, fewer facts with more
 repetition, a fallible CALL path, and a 1/10-scale preflight gate before the full pretraining run.
+
+## Version 2: data_v2 and base_v2 (plan, fixed before any version-2 result)
+
+**Why.** Phase 4 attempts 1–3 showed that `base_v1` cannot retrieve its facts in question form or after any special
+token, so no Phase 4 format could give it a working sense of what it knows (see the attempt-3 diagnosis). The fix
+has to be in the data and pretraining. Changes (`src/data/build_facts_v2.py`, `src/retrieval/search.py`):
+
+| | data_v1 | data_v2 |
+|---|---|---|
+| Facts | 12,000 entities × 3 = 36,000 | 2,400 entities × 3 = **7,200** |
+| Taught / never shown | 50% / 50% | **90% / 10%** |
+| Exposure tiers | 5 / 20 / 80 | **40 / 120 / 300** |
+| Exposure form | statements only | **~70% statements + ~30% chat Q&A** in exactly the Phase 4 ANSWER format; the held-out question family never appears |
+| CALL path | the fact's own record, always right | **top-3 keyword search**; 20% of records missing from the index; shared first names give look-alike distractors (~79% of prompts retrieve the right record) |
+| Phase 4 labels | cloze recall | **question-format recall** (the ANSWER path itself); cloze recorded alongside |
+| Phase 4 format | question → recite / cloze | **question** (decision right after `<ASSISTANT>`) |
+| Audits | 6 | 8 (+ retrieval integrity, Q&A hold-out); class-balance minimum 50 (dev holds ~72 withheld facts) |
+
+Gate adjustments that follow from the design, not from results: `call_path_works` is measured on prompts whose
+record is retrieved (a perfect CALL path is impossible by design), and `tier_sensitive` compares never-shown facts
+with the highest tier (300× in data_v2). All other thresholds are unchanged.
+
+**Preflight rule** (`scripts/preflight_check.py`, 1/10 scale: same facts, ~105M tokens, ~45 min). GO to the full
+~5 h `base_v2` run only if all three hold:
+1. **question_recall:** top-tier question recall ≥ 0.5 and ≥ 0.7 × cloze recall (base_v1: 0.19 vs 0.75, ratio 0.25)
+2. **exposure_gradient:** top-tier question recall ≥ lowest taught tier + 0.1, and ≤ 0.15 for never-shown facts
+3. **real_decision:** the Phase 4 gate's `decisive_policy` and `tier_sensitive` checks both pass
+
+Version-1 artefacts (`data_v1`, `base_v1`, the three Phase 4 attempts) stay as they are and are reported as version 1.
