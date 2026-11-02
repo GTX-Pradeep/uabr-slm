@@ -55,15 +55,17 @@ def sha256(path, chunk=1 << 24):
     return h.hexdigest()
 
 
-def pack_pretrain(tok, data, target_tokens, val_tokens, wiki_source, wiki_local, val_every=200, batch=512, log_every=50_000_000):
+def pack_pretrain(tok, data, target_tokens, val_tokens, wiki_source, wiki_local, val_every=200, batch=512, log_every=50_000_000,
+                  subdir="pretrain"):
     facts = data / "facts"
-    out = data / "pretrain"; out.mkdir(parents=True, exist_ok=True)
+    out = data / subdir; out.mkdir(parents=True, exist_ok=True)
     st_rows = [json.loads(l) for l in open(facts / "statements.jsonl")]
     st_ids = [[formats.BOS] + e.ids + [formats.EOS] for e in tok.encode_batch([r["text"] for r in st_rows], add_special_tokens=False)]
     st_tokens = sum(map(len, st_ids))
     wiki_target = target_tokens - st_tokens
     assert wiki_target > 0, "statements exceed the token target"
-    print(f"statements: {len(st_ids):,} ({st_tokens:,} tokens, repeated by design); wiki target {wiki_target:,} tokens")
+    kinds = pd.Series([r.get("kind", "statement") for r in st_rows]).value_counts().to_dict()
+    print(f"fact exposures: {len(st_ids):,} {kinds} ({st_tokens:,} tokens, repeated by design); wiki target {wiki_target:,} tokens")
 
     train, val = BinWriter(out / "train.bin"), BinWriter(out / "val.bin")
     shards = defaultdict(set)
@@ -104,7 +106,8 @@ def pack_pretrain(tok, data, target_tokens, val_tokens, wiki_source, wiki_local,
     stats = {"train_tokens": train.count, "wiki_tokens_unique": wiki_written, "statement_tokens_repeated": st_tokens,
              "n_statements": len(st_ids), "n_train_articles": n_articles, "val_tokens": val.count,
              "n_val_articles": n_val_articles, "target_tokens": target_tokens,
-             "reached_target": train.count >= target_tokens, "minutes": round((time.time() - t0) / 60, 1)}
+             "reached_target": train.count >= target_tokens, "minutes": round((time.time() - t0) / 60, 1),
+             "exposures_by_kind": {k: int(v) for k, v in kinds.items()}}
     return stats, shards
 
 
@@ -146,6 +149,9 @@ def main():
     ap.add_argument("--sft_val", type=int, default=500)
     ap.add_argument("--wiki_source", default="hf", choices=["hf", "local"])
     ap.add_argument("--wiki_local", default=None)
+    ap.add_argument("--version", default="data_v1", help="data version written to the manifest (data_v1, data_v2)")
+    ap.add_argument("--preflight_tokens", type=int, default=0,
+                    help="ALSO pack a small corpus with the same facts into pretrain_preflight/ (1/10-scale preflight run)")
     a = ap.parse_args()
     data = Path(a.data)
     tok = Tokenizer.from_file(str(data / "tokenizer" / "tokenizer.json"))
@@ -155,6 +161,11 @@ def main():
     print("sft:", json.dumps(sft_stats, default=str))
     pre_stats, shards = pack_pretrain(tok, data, a.target_tokens, a.val_tokens, a.wiki_source, a.wiki_local)
     print("pretrain:", json.dumps(pre_stats))
+    pf_stats = None
+    if a.preflight_tokens:   # every fact exposure again, with ~1/10 of the Wikipedia text
+        pf_stats, _ = pack_pretrain(tok, data, a.preflight_tokens, a.val_tokens, a.wiki_source, a.wiki_local,
+                                    subdir="pretrain_preflight")
+        print("pretrain_preflight:", json.dumps(pf_stats))
 
     led_path = data / "facts" / "exposure_ledger.parquet"
     led = pd.read_parquet(led_path)
@@ -163,12 +174,12 @@ def main():
 
     files = sorted(p for p in data.rglob("*") if p.is_file() and p.name != "manifest.json")
     manifest = {
-        "data_version": "data_v1", "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "data_version": a.version, "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "wiki_source": "wikimedia/wikipedia 20231101.en (CC BY-SA 4.0)" if a.wiki_source == "hf" else f"local:{a.wiki_local}",
         "sft_sources": "databricks-dolly-15k (CC BY-SA 3.0); yahma/alpaca-cleaned (CC BY 4.0)",
         "vocab_source": json.load(open(data / "facts" / "facts_summary.json"))["vocab_source"],
         "tokenizer_sha256": sha256(data / "tokenizer" / "tokenizer.json"),
-        "pretrain": pre_stats, "sft": sft_stats,
+        "pretrain": pre_stats, "pretrain_preflight": pf_stats, "sft": sft_stats,
         "files": {str(p.relative_to(data)): {"bytes": p.stat().st_size, "sha256": sha256(p)} for p in files},
     }
     json.dump(manifest, open(data / "manifest.json", "w"), indent=1, default=str)
