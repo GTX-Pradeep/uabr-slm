@@ -1,4 +1,4 @@
-"""the six data audits, as one pass/fail report.
+"""The data audits, as one pass/fail report: six for data_v1, eight for data_v2 (+ retrieval, Q&A hold-out).
 
     python scripts/audit_ledger.py --data data/processed
 Writes data/processed/audit_report.json and audit_alias_sample.csv (100 rows to check by hand).
@@ -18,7 +18,8 @@ from src.data.formats import normalize_answer  # noqa: E402
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default="data/processed")
-    ap.add_argument("--min_class", type=int, default=100, help="min facts per split and class")
+    ap.add_argument("--min_class", type=int, default=100,
+                    help="min facts per split and class (data_v2: 50, because only 10% of facts are withheld)")
     a = ap.parse_args()
     data = Path(a.data)
     led = pd.read_parquet(data / "facts" / "exposure_ledger.parquet")
@@ -80,6 +81,28 @@ def main():
                         if "pretrain_shard_ids" in led else None,
                         "withheld_with_shard_ids": int((led[led.exposure_count == 0].pretrain_shard_ids != "").sum())}
     ok["6_leakage"] = hits == [] and rep["6_leakage"]["withheld_with_shard_ids"] == 0
+
+    # data_v2 only: 7. retrieval integrity, 8. the held-out question family never appears in pretraining Q&A
+    if "retrieved" in prompts.columns:
+        indexed = dict(zip(ev.evidence_doc_id, ev.indexed))
+        own_indexed = prompts.evidence_doc_id.map(indexed)
+        rep["7_retrieval"] = {
+            "retrieved_unindexed_records": int(prompts.retrieved.map(lambda ds: sum(not indexed[d] for d in ds)).sum()),
+            "prompts_with_fewer_than_k": int((prompts.retrieved.map(len) < prompts.retrieved.map(len).max()).sum()),
+            "record_retrieved_share": float(prompts.record_retrieved.mean()),
+            "record_retrieved_matches_indexed": bool((prompts.record_retrieved == own_indexed).all()),
+            "record_retrieved_by_split": prompts.groupby("split").record_retrieved.mean().round(4).to_dict(),
+        }
+        ok["7_retrieval"] = rep["7_retrieval"]["retrieved_unindexed_records"] == 0 and \
+            rep["7_retrieval"]["prompts_with_fewer_than_k"] == 0 and rep["7_retrieval"]["record_retrieved_matches_indexed"]
+        qa_texts = {json.loads(l)["text"] for l in open(data / "facts" / "statements.jsonl") if '"kind": "qa"' in l}
+        qa_questions = {t.split("<USER> ", 1)[1].split("<ASSISTANT>", 1)[0] for t in qa_texts}
+        alt = prompts[prompts.template_family == "q_alt"]
+        rep["8_qa_holdout"] = {"qa_exposures_distinct": len(qa_texts),
+                               "held_out_questions_seen_in_pretraining": int(alt.question.isin(qa_questions).sum()),
+                               "withheld_facts_with_qa": int(led[(led.exposure_count == 0) & (led.qa_count > 0)].shape[0])}
+        ok["8_qa_holdout"] = rep["8_qa_holdout"]["held_out_questions_seen_in_pretraining"] == 0 and \
+            rep["8_qa_holdout"]["withheld_facts_with_qa"] == 0
 
     rep["pass"] = ok
     rep["all_pass"] = all(ok.values())
