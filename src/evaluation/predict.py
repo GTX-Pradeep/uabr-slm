@@ -27,7 +27,7 @@ def predict(model, tok, prompts, evidence, fmt="question", run_id="", checkpoint
     ans = greedy(model, ans_prompts, max_new, stop_ids=[formats.EOS, formats.BOS], batch_size=batch_size)
     t_ans = time.time()
 
-    ev_text = [evidence.lookup(p["evidence_doc_id"]) for p in prompts]
+    ev_text = [evidence.for_prompt(p) for p in prompts]
     call_prompts = [b + enc(f"<CALL><EVIDENCE> {e} </EVIDENCE>") for b, e in zip(base, ev_text)]
     calls = greedy(model, call_prompts, max_new, stop_ids=[formats.EOS, formats.BOS], batch_size=batch_size)
     t_call = time.time()
@@ -44,7 +44,8 @@ def predict(model, tok, prompts, evidence, fmt="question", run_id="", checkpoint
             "exposure_count": p["exposure_count"], "question": p["question"], "gold": p["answer"],
             "logp_answer": la, "logp_call": lc, "call_score": lc - la, "predicted_action": pred,
             "answer_text": a_txt, "normalized_answer": formats.normalize_answer(a_txt), "reward_answer": ra,
-            "evidence_doc_id": p["evidence_doc_id"], "call_answer_text": c_txt,
+            "evidence_doc_id": p["evidence_doc_id"], "record_retrieved": bool(p.get("record_retrieved", True)),
+            "call_answer_text": c_txt,
             "normalized_call_answer": formats.normalize_answer(c_txt), "reward_call": rc,
             "benefit": b, "preferred_action": "CALL" if b > 0 else "ANSWER",
             "harmful_answer": int(pred == "ANSWER" and ra == 0 and rc == 1),
