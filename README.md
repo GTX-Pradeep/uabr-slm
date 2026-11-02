@@ -34,7 +34,8 @@ Wikipedia + pseudonymous facts ─► 40M base model ─► <ANSWER>/<CALL> poli
 | **1** | Model, trainer, tests, GPU smoke run, resume check | Kaggle / Colab T4, ~20 min | 7 tests pass, loss falls, resume continuous, tokens/s recorded | ✅ passed |
 | 2 | Data: Wikipedia corpus, controlled facts, exposure ledger, tokenizer | Kaggle CPU | 6 ledger audits pass, tokenizer frozen | ✅ passed (1.005B tokens, 6/6 audits) |
 | 3 | Pretrain the 40M base model (1B tokens) | Kaggle T4, ~6 h | Val loss falls, facts recalled by exposure tier | ✅ passed (val loss 2.81; 80× facts 75% recalled) |
-| 4 | Frozen evidence index + delegation training | Kaggle / Colab, < 1 h | Both actions learned, AUROC > 0.5 | 🟡 run next |
+| 4 | Frozen evidence index + delegation training | Kaggle / Colab, < 1 h | Six gate checks | ❌ v1: 3 attempts failed (see results) → **version 2** |
+| 2–3 v2 | `data_v2` (Q&A in pretraining, fallible CALL) → preflight → `base_v2` | Kaggle CPU + T4 | 8 audits; preflight GO | ⏳ run next |
 | 5 | No-replay interference pilot | Kaggle / Colab, ~2 h | Go / no-go note written | 🟡 code in repo · run after Phase 4 |
 | 6 | Utility labels + SFT with each replay method × 2 seeds | Kaggle, spread over accounts | Equal-budget checkpoints | ⏳ |
 | 7 | Test evaluation, paired bootstrap, error analysis | Colab, < 1 h | Frozen prediction tables + figures | ⏳ |
@@ -93,6 +94,20 @@ by person: delegation_train 50%, replay_construction 20%, dev 10%, test 20%.
 
 To rebuild from scratch: run `notebooks/phase2_build_data.ipynb` (CPU, Internet on, about 3–5 h with `QUICK = False`),
 then `notebooks/phase3_pretrain.ipynb` (GPU, about 6 h).
+
+## Version 2: why the data and base model are rebuilt
+
+Three Phase 4 attempts on `base_v1` failed for one measured reason: the model recalled 75% of its best-known facts as
+sentences but only ~19–24% when asked as a question or after any special token it never saw in pretraining, so it had
+no internal signal of what it knew. Version 2 fixes this upstream (`src/data/build_facts_v2.py`):
+
+- **7,200 facts**, 90% taught, tiers **40 / 120 / 300** (repetition, not coverage)
+- **~30% of each fact's exposures are chat Q&A** in exactly the Phase 4 format, so the chat and action tokens are learned in pretraining
+- **Fallible CALL**: a top-3 keyword search (`src/retrieval/search.py`) with 20% of records missing and look-alike distractors, so calling has a real cost and the benefit of an action can be −1
+- A **1/10-scale preflight** (`notebooks/preflight_v2.ipynb`, ~45 min) prints GO/STOP by a rule fixed in advance before the ~5 h pretraining run
+
+Run order: `phase2v2_build_data.ipynb` → `preflight_v2.ipynb` → `phase3_pretrain.ipynb` (`DATA_VERSION = "data_v2"`) →
+`phase4_delegation.ipynb` → `phase5_pilot.ipynb`. The plan and preflight rule are in [`docs/results.md`](docs/results.md).
 
 ## Phase 4: answer or call
 
@@ -160,18 +175,19 @@ configs/    pretrain.yaml (full 40M, 1B tokens) · smoke_40m.yaml · tiny_cpu.ya
 src/model/  model.py (transformer) · load.py (checkpoint loading)
 src/train/  pretrain.py (FP16 AMP, grad accumulation, cosine LR, full-state checkpoints)
 src/data/   formats.py (special tokens, sequence formats, answer matching) · vocab.py (Wikidata answer lists)
-            build_facts.py (pseudonymous facts, exposure tiers, splits, prompts, evidence, ledger)
+            build_facts.py (v1 facts) · build_facts_v2.py (v2: Q&A exposures, tiers 40/120/300, fallible retrieval)
             wiki.py (Wikipedia stream) · sft_data.py (Dolly + Alpaca) · tokenizer.py (BPE 12k) · pack.py (.bin files)
-src/retrieval/  evidence.py (frozen evidence lookup, hashed as the index version)
+src/retrieval/  evidence.py (frozen evidence, hashed as the index version) · search.py (v2 top-3 keyword search)
 src/evaluation/ generate.py (batched greedy decoding, next-token scores) · predict.py (one prediction table per checkpoint)
                 metrics.py (AUROC, AP, call-budget accuracy, calibration, risk-coverage, bootstrap)
 src/train/  sft.py (shared fine-tuning loop for delegation, SFT and every replay branch)
             sft_batches.py (instruction batches shared by all SFT branches; replay mixed in evenly)
 scripts/    check_gpu.py · make_synthetic_data.py · audit_ledger.py · probe_facts.py · sample_text.py
-            label_knowledge.py · train_delegation.py · run_sft.py · pilot_eval.py
-configs/sft_methods/  standard.yaml (the SFT setup every Phase 5-6 branch shares)
-tests/      test_model.py · test_data.py · test_phase4.py · test_phase5.py · conftest.py
+            label_knowledge.py · train_delegation.py · run_sft.py · pilot_eval.py · preflight_check.py
+configs/sft_methods/  standard.yaml (the SFT setup every Phase 5-6 branch shares) · configs/pretrain_preflight.yaml
+tests/      test_model.py · test_data.py · test_phase4.py · test_phase5.py · test_v2.py · conftest.py
 notebooks/  phase1_setup_and_smoke.ipynb · phase2_build_data.ipynb · phase3_pretrain.ipynb · phase4_delegation.ipynb · phase5_pilot.ipynb
+            phase2v2_build_data.ipynb · preflight_v2.ipynb
 docs/       results.md (gate results per phase) · pilot_decision.md (preregistered pilot rule)
 ```
 
