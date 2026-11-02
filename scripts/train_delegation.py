@@ -29,15 +29,18 @@ from src.train.sft import save_weights, train  # noqa: E402
 
 
 def build_examples(tok, prompts, knows, evidence, fmt):
-    ans, call = [], []
+    """ANSWER where the base model knows the fact; CALL where it does not AND the search returns the record.
+    Unknown facts whose record is missing from the search are left out: teaching an answer there would teach guessing."""
+    ans, call, skipped = [], [], 0
     for p in prompts:
         prefix = formats.decision_ids(tok, fmt, p["question"], p["relation"], p["entity"])
         if knows[p["fact_id"]]:
             ans.append(formats.build_example_ids(tok, prefix, formats.answer_target(p["answer"])))
+        elif p.get("record_retrieved", True):
+            call.append(formats.build_example_ids(tok, prefix, formats.call_target(evidence.for_prompt(p), p["answer"])))
         else:
-            ev = evidence.lookup(p["evidence_doc_id"])
-            call.append(formats.build_example_ids(tok, prefix, formats.call_target(ev, p["answer"])))
-    return ans, call
+            skipped += 1
+    return ans, call, skipped
 
 
 def epoch_lists(ans, call, epochs, answer_frac, seed, max_examples=None):
@@ -66,22 +69,27 @@ def gate(df, knows_dev, call_ci):
     direct_unknown = float(d[d.label == "CALL"].reward_answer.mean())
     s = M.summarize(d)
     tiers = s["call_rate_by_tier"]
+    # data_v2's CALL is fallible by design: judge the copy path where the right record was actually retrieved
+    retrieved = d.record_retrieved.astype(bool) if "record_retrieved" in d else pd.Series(True, index=d.index)
+    call_path_retrieved = float(d[retrieved].reward_call.mean())
     checks = {
         "both_actions_learned": min(pred_share.get("ANSWER", 0), pred_share.get("CALL", 0)) >= 0.05
                                 and min(recall.values()) >= 0.5,
         "useful_ranking": call_ci[0] > 0.55,
         "direct_path_works": direct_known - direct_unknown >= 0.2,
-        "call_path_works": s["acc_always_call"] >= 0.9,
+        "call_path_works": call_path_retrieved >= 0.9,
         # anti-cheating: "always CALL" and "50/50 for everything" both give mutual information ~0
         "decisive_policy": s["decisiveness"]["mutual_information"] >= 0.1,
         # a real policy calls clearly less for 80x facts than for never-shown facts; a flat rate is a heuristic
-        "tier_sensitive": 0 in tiers and 80 in tiers and tiers[0] - tiers[80] >= 0.2,
+        # (never shown vs the highest exposure tier: 80x in data_v1, 300x in data_v2)
+        "tier_sensitive": 0 in tiers and len(tiers) > 1 and tiers[0] - tiers[max(tiers)] >= 0.2,
     }
     rep = {
         "confusion_label_x_predicted": conf.to_dict(orient="index"), "recall_by_label": recall,
         "predicted_share": pred_share, "auroc": s["auroc"], "auroc_95ci": call_ci,
         "direct_accuracy_known_facts": direct_known, "direct_accuracy_unknown_facts": direct_unknown,
-        "call_path_accuracy": s["acc_always_call"], "summary": s,
+        "call_path_accuracy": s["acc_always_call"], "call_path_accuracy_record_retrieved": call_path_retrieved,
+        "record_retrieved_share": float(retrieved.mean()), "summary": s,
         "by_template_family": {fam: {"n": len(g), "auroc": M.auroc(g.call_score, g.benefit > 0), "default_acc": float(
             np.where(g.predicted_action == "CALL", g.reward_call, g.reward_answer).mean())} for fam, g in d.groupby("template_family")},
         "checks": checks, "all_pass": all(checks.values()),
@@ -127,7 +135,9 @@ def main():
     train_prompts = load_prompts(data / "facts", "delegation_train")
     missing = {p["fact_id"] for p in train_prompts} - set(knows)
     assert not missing, f"{len(missing)} delegation_train facts have no knowledge label"
-    ans, call = build_examples(tok, train_prompts, knows, evidence, fmt)
+    ans, call, skipped = build_examples(tok, train_prompts, knows, evidence, fmt)
+    if skipped:
+        print(f"left out {skipped:,} unknown-fact prompts whose record the search does not return (no answer to copy)")
     epochs = epoch_lists(ans, call, ft["epochs"], dc["answer_frac"], ft["seed"],
                          cfg["quick"]["max_train_examples"] if a.quick else None)
     print(f"delegation_train: {len(ans):,} ANSWER + {len(call):,} CALL examples available; "
@@ -186,7 +196,9 @@ def main():
     print(f"routing AUROC {s['auroc']:.3f}  (95% CI {ci[0]:.3f}-{ci[1]:.3f}) | average precision {s['average_precision']:.3f} "
           f"| AUROC vs knowledge label {M.auroc(d.call_score, d.label == 'CALL'):.3f}")
     print(f"direct answer accuracy: known facts {rep['direct_accuracy_known_facts']:.3f} vs unknown {rep['direct_accuracy_unknown_facts']:.3f}")
-    print(f"CALL-path accuracy {s['acc_always_call']:.3f} | call-beneficial share {s['call_beneficial_rate']:.3f}")
+    print(f"CALL-path accuracy {s['acc_always_call']:.3f} (where the record is retrieved: "
+          f"{rep['call_path_accuracy_record_retrieved']:.3f}, {rep['record_retrieved_share']:.0%} of prompts) | "
+          f"call-beneficial share {s['call_beneficial_rate']:.3f} | call-harmful share {float((d.benefit < 0).mean()):.3f}")
     print(f"end-to-end accuracy: always answer {s['acc_always_answer']:.3f} | default decision {s['default_decision']['accuracy']:.3f} "
           f"(call rate {s['default_call_rate']:.3f}) | always call {s['acc_always_call']:.3f} | oracle {s['acc_oracle']:.3f}")
     for b in (5, 10, 20):
