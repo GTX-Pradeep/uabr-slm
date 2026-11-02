@@ -67,7 +67,7 @@ def gold_logprob(model, prefix_ids, gold_ids):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", required=True, help="run dir, checkpoint dir or exported .pt")
-    ap.add_argument("--data", required=True, help="data_v1 folder")
+    ap.add_argument("--data", required=True, help="data_v1 or data_v2 folder")
     ap.add_argument("--per_tier", type=int, default=300)
     ap.add_argument("--out", default=None)
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -105,10 +105,11 @@ def main():
     print("\nExact match by relation x tier:")
     print(by_rel.to_string())
     em = summ["em"].to_dict()
-    ok = em.get(80, 0) > em.get(0, 0) + 0.05 and summ["gold_logprob"].is_monotonic_increasing
+    top = max(em)   # highest exposure tier: 80 in data_v1, 300 in data_v2
+    ok = em.get(top, 0) > em.get(0, 0) + 0.05 and summ["gold_logprob"].is_monotonic_increasing
     print("\nGATE:", "PASS - recall rises with exposure" if ok else "NOT YET - no clear exposure gradient")
-    print("\nExamples (tier 80):")
-    print(df[df.tier == 80].head(8)[["gold", "pred", "em"]].to_string(index=False))
+    print(f"\nExamples (tier {top}):")
+    print(df[df.tier == top].head(8)[["gold", "pred", "em"]].to_string(index=False))
     out = Path(a.out) if a.out else Path(a.ckpt if Path(a.ckpt).is_dir() else Path(a.ckpt).parent) / f"probe_step{info['step']}.json"
     json.dump({"step": info["step"], "tokens_seen": info["tokens_seen"], "by_tier": summ.reset_index().to_dict(orient="records"),
                "by_relation_tier": by_rel.to_dict(), "gate_pass": bool(ok)}, open(out, "w"), indent=1, default=str)
