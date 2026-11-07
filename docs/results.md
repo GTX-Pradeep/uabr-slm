@@ -197,3 +197,38 @@ with the highest tier (300× in data_v2). All other thresholds are unchanged.
 3. **real_decision:** the Phase 4 gate's `decisive_policy` and `tier_sensitive` checks both pass
 
 Version-1 artefacts (`data_v1`, `base_v1`, the three Phase 4 attempts) stay as they are and are reported as version 1.
+
+### Preflight 1 (STOP)
+
+**Run:** `notebooks/preflight_v2.ipynb`, `QUICK = False` (Kaggle `uabr-preflight-v2`), 7 Nov 2026. 37 tests passed.
+data_v2 full build: 1,005,003,687 train tokens, 105,004,865 preflight tokens, 8/8 audits. Preflight model: 1,602 steps,
+105M tokens, validation loss 4.77 → 3.36.
+
+| Exposure | 0 | 40× | 120× | 300× |
+|---|---|---|---|---|
+| Cloze recall | 0.031 | 0.659 | 0.920 | 0.980 |
+| **Question recall** | 0.031 | **0.894** | **0.996** | **0.997** |
+
+Question / cloze at the top tier: **1.018** (base_v1: 0.25). Labels: 87% of non-test facts known.
+
+Phase 4 at preflight scale (`question` format, LR 1e-4): 18,792 ANSWER + 2,208 CALL examples available, 4,416 per
+epoch, 207 updates. Routing AUROC 0.468 (0.429–0.509); mutual information 0.134; default call rate 0.046; CALL rate by
+tier 0.03 / 0.05 / 0.06 / 0.04; direct accuracy on dev fell from 0.771 (base) to 0.567; CALL-path accuracy 0.391
+overall and 0.498 where the right record was retrieved. Failed: both_actions_learned, useful_ranking, call_path_works,
+tier_sensitive.
+
+| Rule | Result |
+|---|---|
+| question_recall | **PASS** |
+| exposure_gradient | **PASS** |
+| real_decision | FAIL |
+| **Preflight** | **STOP** |
+
+**Diagnosis.** The data and pretraining change worked: question-format recall now matches sentence recall. The failure
+is in the Phase 4 recipe on the new data: (a) the CALL path must pick the right record out of three, and 2,208 examples
+taught that only to 50%; (b) with only ~10% of facts unknown, the 50/50 balance left 207 updates in total; (c) the LR of
+1e-4, above the 6e-5 where pretraining ends, erased recall (0.77 → 0.57) during fine-tuning.
+
+**Change for preflight 2** (Phase 4 recipe only; data, preflight model and rule unchanged): reading-practice examples
+for every retrieved prompt (the CALL path with loss on the answer only, so they teach reading the records but not
+when to call), and LR 3e-5 → 3e-6 for data_v2. The preflight model from run 1 is reused.
