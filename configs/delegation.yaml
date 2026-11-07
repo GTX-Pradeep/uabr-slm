@@ -27,3 +27,11 @@ quick:
   max_train_examples: 3000
   epochs: 1
   dev_eval_prompts: 300
+# data_v2 (fallible CALL, Q&A in pretraining). Set after the first preflight (docs/results.md, "Preflight 1"), which showed
+# (a) the CALL path read the right record out of three only half the time (2,208 CALL examples), and (b) recall on direct
+# answers fell from 0.77 to 0.57 during this fine-tuning: its LR of 1e-4 is above the 6e-5 where pretraining ends.
+data_v2:
+  copy_examples: true       # + one reading-practice example per retrieved prompt (loss on the answer, not the action)
+  finetune:
+    lr: 3.0e-5
+    min_lr: 3.0e-6
