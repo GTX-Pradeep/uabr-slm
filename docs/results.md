@@ -232,3 +232,23 @@ taught that only to 50%; (b) with only ~10% of facts unknown, the 50/50 balance 
 **Change for preflight 2** (Phase 4 recipe only; data, preflight model and rule unchanged): reading-practice examples
 for every retrieved prompt (the CALL path with loss on the answer only, so they teach reading the records but not
 when to call), and LR 3e-5 → 3e-6 for data_v2. The preflight model from run 1 is reused.
+
+### Preflight 2 (STOP)
+
+**Run:** same notebook, preflight model from run 1 reused, 7 Nov 2026. 38 tests passed. Phase 4 with reading practice
+(17,124 examples, answer-only loss) and LR 3e-5: 21,540 examples per epoch, 1,011 updates.
+
+| Measure | Preflight 1 | Preflight 2 |
+|---|---|---|
+| CALL-path accuracy where the record is retrieved | 0.498 | **0.797** |
+| Direct accuracy on dev after Phase 4 (base: 0.771) | 0.567 | **0.706** |
+| Direct accuracy, facts labelled known / unknown | 0.654 / 0.041 | 0.797 / 0.128 |
+| Routing AUROC (95% CI) | 0.468 (0.429–0.509) | 0.472 (0.432–0.510) |
+| AUROC vs knowledge label | 0.541 | 0.519 |
+| CALL rate by tier (0 / 40 / 120 / 300) | 0.03 / 0.05 / 0.06 / 0.04 | 0.03 / 0.05 / 0.05 / 0.05 |
+| Failed checks | both_actions, useful_ranking, call_path, tier_sensitive | same |
+
+**Reading.** Reading practice and the lower LR fixed the CALL path and the loss of recall. The routing decision itself
+did not move: dev AUROC stays near or below 0.5 at every checkpoint. Before changing the recipe again, the next run
+measures whether the routing signal exists at all (`scripts/diagnose_routing.py`): output confidence and linear probes
+on the frozen preflight model, scored on dev.
