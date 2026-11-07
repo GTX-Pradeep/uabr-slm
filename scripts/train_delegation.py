@@ -28,22 +28,36 @@ from src.retrieval.evidence import EvidenceIndex  # noqa: E402
 from src.train.sft import save_weights, train  # noqa: E402
 
 
-def build_examples(tok, prompts, knows, evidence, fmt):
+def copy_example(tok, prefix, evidence_text, answer):
+    """CALL-path reading practice: <CALL><EVIDENCE> top-3 records </EVIDENCE> answer, with the loss on the answer only.
+    The action token (and <EVIDENCE>) carry no loss, so these examples teach *how* to read the retrieved records
+    without teaching *when* to call; the routing decision is learned only from the labelled examples."""
+    ids, lab = formats.build_example_ids(tok, prefix, formats.call_target(evidence_text, answer))
+    lab[len(prefix) - 1] = -100   # would predict <CALL>
+    lab[len(prefix)] = -100       # would predict <EVIDENCE>
+    return ids, lab
+
+
+def build_examples(tok, prompts, knows, evidence, fmt, with_copy=False):
     """ANSWER where the base model knows the fact; CALL where it does not AND the search returns the record.
-    Unknown facts whose record is missing from the search are left out: teaching an answer there would teach guessing."""
-    ans, call, skipped = [], [], 0
+    Unknown facts whose record is missing from the search are left out: teaching an answer there would teach guessing.
+    with_copy (data_v2): also one reading-practice example for every prompt whose record is retrieved (copy_example)."""
+    ans, call, copy, skipped = [], [], [], 0
     for p in prompts:
         prefix = formats.decision_ids(tok, fmt, p["question"], p["relation"], p["entity"])
+        if with_copy and p.get("record_retrieved", False):
+            copy.append(copy_example(tok, prefix, evidence.for_prompt(p), p["answer"]))
         if knows[p["fact_id"]]:
             ans.append(formats.build_example_ids(tok, prefix, formats.answer_target(p["answer"])))
         elif p.get("record_retrieved", True):
             call.append(formats.build_example_ids(tok, prefix, formats.call_target(evidence.for_prompt(p), p["answer"])))
         else:
             skipped += 1
-    return ans, call, skipped
+    return ans, call, copy, skipped
 
 
-def epoch_lists(ans, call, epochs, answer_frac, seed, max_examples=None):
+def epoch_lists(ans, call, epochs, answer_frac, seed, max_examples=None, copy=()):
+    """Each epoch: ANSWER/CALL routing examples at answer_frac, plus every reading-practice example (data_v2)."""
     out = []
     for ep in range(epochs):
         rng = random.Random(seed + ep)
@@ -51,7 +65,7 @@ def epoch_lists(ans, call, epochs, answer_frac, seed, max_examples=None):
         n_ans = len(ans)
         if n_call < round(n_ans * (1 - answer_frac) / answer_frac):  # fewer CALL than needed: downsample ANSWER
             n_ans = min(len(ans), round(n_call * answer_frac / (1 - answer_frac)))
-        ex = rng.sample(ans, n_ans) + rng.sample(call, n_call)
+        ex = rng.sample(ans, n_ans) + rng.sample(call, n_call) + list(copy)
         rng.shuffle(ex)
         if max_examples:
             ex = ex[:max_examples]
@@ -135,11 +149,18 @@ def main():
     train_prompts = load_prompts(data / "facts", "delegation_train")
     missing = {p["fact_id"] for p in train_prompts} - set(knows)
     assert not missing, f"{len(missing)} delegation_train facts have no knowledge label"
-    ans, call, skipped = build_examples(tok, train_prompts, knows, evidence, fmt)
+    v2 = any("retrieved" in p for p in train_prompts[:50])
+    if v2 and "data_v2" in cfg:   # design-driven overrides for the fallible-CALL data (configs/delegation.yaml)
+        ft.update(cfg["data_v2"].get("finetune", {}))
+        print(f"data_v2 settings: {cfg['data_v2']}")
+    with_copy = v2 and cfg.get("data_v2", {}).get("copy_examples", False)
+    ans, call, copy, skipped = build_examples(tok, train_prompts, knows, evidence, fmt, with_copy)
+    if copy:
+        print(f"reading practice: {len(copy):,} CALL-path examples with loss on the answer only (no routing signal)")
     if skipped:
         print(f"left out {skipped:,} unknown-fact prompts whose record the search does not return (no answer to copy)")
     epochs = epoch_lists(ans, call, ft["epochs"], dc["answer_frac"], ft["seed"],
-                         cfg["quick"]["max_train_examples"] if a.quick else None)
+                         cfg["quick"]["max_train_examples"] if a.quick else None, copy=copy)
     print(f"delegation_train: {len(ans):,} ANSWER + {len(call):,} CALL examples available; "
           f"{len(epochs[0]):,} per epoch ({dc['answer_frac']:.0%} ANSWER) x {len(epochs)} epochs")
 
