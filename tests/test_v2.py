@@ -146,6 +146,16 @@ def delegation_v2(built_v2, tmp_path_factory):
     return d
 
 
+def test_copy_example_teaches_reading_not_routing(built_v2):
+    from tokenizers import Tokenizer
+    from scripts.train_delegation import copy_example
+    tok = Tokenizer.from_file(str(built_v2 / "tokenizer" / "tokenizer.json"))
+    prefix = tok.encode(formats.delegation_prompt("Where was Kael Dorn born?")).ids
+    ids, lab = copy_example(tok, prefix, "Registry record for Kael Dorn: place of birth: Oslo.", "Oslo")
+    assert ids[len(prefix)] == formats.CALL and ids[len(prefix) + 1] == formats.EV_OPEN
+    assert [t for t in lab if t != -100] == tok.encode(" Oslo").ids + [formats.EOS]   # loss on the answer only
+
+
 def test_v2_delegation_gate(delegation_v2):
     rep = json.load(open(delegation_v2 / "deleg" / "gate_report.json"))
     assert rep["format"] == "question"
