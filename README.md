@@ -36,8 +36,8 @@ Wikipedia + pseudonymous facts ─► 40M base model ─► <ANSWER>/<CALL> poli
 | 3 | Pretrain the 40M base model (1B tokens) | Kaggle T4, ~6 h | Val loss falls, facts recalled by exposure tier | ✅ passed (val loss 2.81; 80× facts 75% recalled) |
 | 4 | Frozen evidence index + delegation training | Kaggle / Colab, < 1 h | Six gate checks | ❌ v1: 3 attempts failed (see results) → **version 2** |
 | 2 v2 | `data_v2`: Q&A in pretraining, fallible CALL | Kaggle CPU, ~2.5 h | 8 audits | ✅ passed (8/8) |
-| Preflight v2 | 1/10-scale Phases 3 + 4 | Kaggle T4, ~45 min | GO/STOP rule | 🟡 question recall fixed (0.997); routing via `answer_slot` next |
-| 3 v2 | `base_v2` pretraining | Kaggle T4, ~5 h | Recall by tier | ⏳ after preflight GO |
+| Preflight v2 | 1/10-scale Phases 3 + 4 | Kaggle T4, ~45 min | GO/STOP rule | ✅ **GO** (run 3): CALL rate 0.80 → 0.37 from never-shown to 300× facts |
+| 3 v2 | `base_v2` pretraining | Kaggle T4, ~5 h | Recall by tier | ⏳ run next |
 | 5 | No-replay interference pilot | Kaggle / Colab, ~2 h | Go / no-go note written | 🟡 code in repo · run after Phase 4 |
 | 6 | Utility labels + SFT with each replay method × 2 seeds | Kaggle, spread over accounts | Equal-budget checkpoints | ⏳ |
 | 7 | Test evaluation, paired bootstrap, error analysis | Colab, < 1 h | Frozen prediction tables + figures | ⏳ |
