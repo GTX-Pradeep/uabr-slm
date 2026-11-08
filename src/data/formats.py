@@ -27,11 +27,14 @@ def call_target(evidence, answer):
 #   "question" (attempt 1): <BOS><USER> Where was Kael Dorn born?<ASSISTANT>| action
 #   "recite"   (attempt 3): <BOS><USER> Where was Kael Dorn born?<ASSISTANT> Kael Dorn was born in the city of| action
 #   "cloze"    (attempt 3): <BOS>Kael Dorn was born in the city of| action
+#   "answer_slot" (data_v2): <BOS><USER> Where was Kael Dorn born?<ASSISTANT><ANSWER>| " Oslo"  or  <CALL>
+#       the action competes with the answer's first word at the answer position, where the model's confidence lives
+#       (scripts/diagnose_routing.py: AUROC 0.92 there vs ~0.52 one position earlier, preflight model)
 # then  <ANSWER> Oslo<EOS>   or   <CALL><EVIDENCE> ... </EVIDENCE> Oslo<EOS>.
 # In "recite" and "cloze" the recitation is fixed text written by the system (masked in training, fed at evaluation),
 # so the decision sits exactly where the answer word would start: the position that holds the model's own knowledge.
 # The recitation is the knowledge probe's cloze text, so an ANSWER label means "the model completes this correctly".
-DELEGATION_FORMATS = ("question", "recite", "cloze")
+DELEGATION_FORMATS = ("question", "recite", "cloze", "answer_slot")
 RECITATION = {
     "born_in": "{e} was born in the city of",
     "citizen_of": "{e} is a citizen of",
@@ -53,7 +56,14 @@ def decision_ids(tok, fmt, question, relation, entity):
         return tok.encode(delegation_prompt(question)).ids + tok.encode(" " + recitation(relation, entity)).ids
     if fmt == "cloze":
         return [BOS] + tok.encode(recitation(relation, entity)).ids   # exactly the knowledge-probe prefix
+    if fmt == "answer_slot":
+        return tok.encode(delegation_prompt(question)).ids + [ANSWER]
     raise ValueError(f"unknown delegation format {fmt!r}; expected one of {DELEGATION_FORMATS}")
+
+
+def answer_target_for(fmt, answer):
+    """Direct-answer target after the decision prefix. In answer_slot, <ANSWER> is already part of the prefix."""
+    return f" {answer}<EOS>" if fmt == "answer_slot" else answer_target(answer)
 
 
 def format_of(config):
