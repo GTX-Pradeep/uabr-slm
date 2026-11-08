@@ -48,7 +48,7 @@ def build_examples(tok, prompts, knows, evidence, fmt, with_copy=False):
         if with_copy and p.get("record_retrieved", False):
             copy.append(copy_example(tok, prefix, evidence.for_prompt(p), p["answer"]))
         if knows[p["fact_id"]]:
-            ans.append(formats.build_example_ids(tok, prefix, formats.answer_target(p["answer"])))
+            ans.append(formats.build_example_ids(tok, prefix, formats.answer_target_for(fmt, p["answer"])))
         elif p.get("record_retrieved", True):
             call.append(formats.build_example_ids(tok, prefix, formats.call_target(evidence.for_prompt(p), p["answer"])))
         else:
@@ -86,6 +86,9 @@ def gate(df, knows_dev, call_ci):
     # data_v2's CALL is fallible by design: judge the copy path where the right record was actually retrieved
     retrieved = d.record_retrieved.astype(bool) if "record_retrieved" in d else pd.Series(True, index=d.index)
     call_path_retrieved = float(d[retrieved].reward_call.mean())
+    # answer_slot only: how well the model's own answer confidence alone would route (a non-learned reference)
+    conf_auroc = float(M.auroc(-d.logp_answer.to_numpy(), d.benefit.to_numpy() > 0)) \
+        if (d.delegation_format == "answer_slot").all() else float("nan")
     checks = {
         "both_actions_learned": min(pred_share.get("ANSWER", 0), pred_share.get("CALL", 0)) >= 0.05
                                 and min(recall.values()) >= 0.5,
@@ -103,7 +106,7 @@ def gate(df, knows_dev, call_ci):
         "predicted_share": pred_share, "auroc": s["auroc"], "auroc_95ci": call_ci,
         "direct_accuracy_known_facts": direct_known, "direct_accuracy_unknown_facts": direct_unknown,
         "call_path_accuracy": s["acc_always_call"], "call_path_accuracy_record_retrieved": call_path_retrieved,
-        "record_retrieved_share": float(retrieved.mean()), "summary": s,
+        "record_retrieved_share": float(retrieved.mean()), "confidence_baseline_auroc": conf_auroc, "summary": s,
         "by_template_family": {fam: {"n": len(g), "auroc": M.auroc(g.call_score, g.benefit > 0), "default_acc": float(
             np.where(g.predicted_action == "CALL", g.reward_call, g.reward_answer).mean())} for fam, g in d.groupby("template_family")},
         "checks": checks, "all_pass": all(checks.values()),
@@ -225,6 +228,8 @@ def main():
     for b in (5, 10, 20):
         o = s[f"budget_{b}"]
         print(f"  call budget {b:>2}%: accuracy {o['accuracy']:.3f} | harmful answers {o['harmful_answer_rate']:.3f}")
+    if rep["confidence_baseline_auroc"] == rep["confidence_baseline_auroc"]:
+        print(f"reference: routing by the model's own answer confidence alone gives AUROC {rep['confidence_baseline_auroc']:.3f}")
     dz = s["decisiveness"]
     print(f"decisiveness: mutual information {dz['mutual_information']:.3f} bits (overall entropy {dz['marginal_entropy']:.3f} "
           f"- per-prompt entropy {dz['conditional_entropy']:.3f}) | near-coin-flip prompts {dz['near_coinflip_share']:.1%}")
