@@ -35,7 +35,9 @@ Wikipedia + pseudonymous facts ─► 40M base model ─► <ANSWER>/<CALL> poli
 | 2 | Data: Wikipedia corpus, controlled facts, exposure ledger, tokenizer | Kaggle CPU | 6 ledger audits pass, tokenizer frozen | ✅ passed (1.005B tokens, 6/6 audits) |
 | 3 | Pretrain the 40M base model (1B tokens) | Kaggle T4, ~6 h | Val loss falls, facts recalled by exposure tier | ✅ passed (val loss 2.81; 80× facts 75% recalled) |
 | 4 | Frozen evidence index + delegation training | Kaggle / Colab, < 1 h | Six gate checks | ❌ v1: 3 attempts failed (see results) → **version 2** |
-| 2–3 v2 | `data_v2` (Q&A in pretraining, fallible CALL) → preflight → `base_v2` | Kaggle CPU + T4 | 8 audits; preflight GO | ⏳ run next |
+| 2 v2 | `data_v2`: Q&A in pretraining, fallible CALL | Kaggle CPU, ~2.5 h | 8 audits | ✅ passed (8/8) |
+| Preflight v2 | 1/10-scale Phases 3 + 4 | Kaggle T4, ~45 min | GO/STOP rule | 🟡 question recall fixed (0.997); routing via `answer_slot` next |
+| 3 v2 | `base_v2` pretraining | Kaggle T4, ~5 h | Recall by tier | ⏳ after preflight GO |
 | 5 | No-replay interference pilot | Kaggle / Colab, ~2 h | Go / no-go note written | 🟡 code in repo · run after Phase 4 |
 | 6 | Utility labels + SFT with each replay method × 2 seeds | Kaggle, spread over accounts | Equal-budget checkpoints | ⏳ |
 | 7 | Test evaluation, paired bootstrap, error analysis | Colab, < 1 h | Frozen prediction tables + figures | ⏳ |
@@ -105,6 +107,11 @@ no internal signal of what it knew. Version 2 fixes this upstream (`src/data/bui
 - **~30% of each fact's exposures are chat Q&A** in exactly the Phase 4 format, so the chat and action tokens are learned in pretraining
 - **Fallible CALL**: a top-3 keyword search (`src/retrieval/search.py`) with 20% of records missing and look-alike distractors, so calling has a real cost and the benefit of an action can be −1
 - A **1/10-scale preflight** (`notebooks/preflight_v2.ipynb`, ~45 min) prints GO/STOP by a rule fixed in advance before the ~5 h pretraining run
+
+**What the preflights showed.** Question-format recall now matches sentence recall (0.997 vs 0.98 on 300× facts; v1:
+0.19 vs 0.75). A routing diagnostic then found that the model's own answer confidence predicts a wrong answer with AUROC
+0.92, but only at the answer position, so Phase 4 on v2 uses the `answer_slot` format: after `<ASSISTANT><ANSWER>`,
+`<CALL>` competes with the answer's first word in the same softmax.
 
 Run order: `phase2v2_build_data.ipynb` → `preflight_v2.ipynb` → `phase3_pretrain.ipynb` (`DATA_VERSION = "data_v2"`) →
 `phase4_delegation.ipynb` → `phase5_pilot.ipynb`. The plan and preflight rule are in [`docs/results.md`](docs/results.md).
