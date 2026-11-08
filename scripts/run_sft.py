@@ -37,7 +37,7 @@ def replay_examples(tok, data, evidence, rows, fmt):
         p = prompts[r["prompt_id"]]  # KeyError = a selector picked a prompt outside replay_construction
         prefix = formats.decision_ids(tok, fmt, p["question"], p["relation"], p["entity"])
         if r["target"] == "ANSWER":
-            target = formats.answer_target(p["answer"])
+            target = formats.answer_target_for(fmt, p["answer"])
         elif r["target"] == "CALL":
             assert p.get("record_retrieved", True), f"CALL replay target for {p['prompt_id']}, whose record is not retrieved"
             target = formats.call_target(evidence.for_prompt(p), p["answer"])
