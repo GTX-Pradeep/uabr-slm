@@ -68,10 +68,11 @@ def last_position(model, prompts, batch_size=256):
 
 def features(model, tok, prompts, fmt):
     dec = [formats.decision_ids(tok, fmt, p["question"], p["relation"], p["entity"]) for p in prompts]
-    ans = [d + [formats.ANSWER] for d in dec]
+    ans = dec if fmt == "answer_slot" else [d + [formats.ANSWER] for d in dec]
     h_dec, _, _ = last_position(model, dec)
     h_ans, maxp, ent = last_position(model, ans)
-    gens = greedy(model, ans, max_new=10, stop_ids=[formats.EOS, formats.BOS])
+    gens = greedy(model, ans, max_new=10, stop_ids=[formats.EOS, formats.BOS],
+                  ban_ids=[formats.CALL, formats.EV_OPEN, formats.EV_CLOSE, formats.ANSWER])
     texts = [tok.decode(g).strip() for g in gens]
     wrong = np.array([0 if formats.exact_match(t, p["aliases"]) else 1 for t, p in zip(texts, prompts)])
     safe = [g if g else [formats.EOS] for g in gens]
