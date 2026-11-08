@@ -252,3 +252,32 @@ when to call), and LR 3e-5 → 3e-6 for data_v2. The preflight model from run 1 
 did not move: dev AUROC stays near or below 0.5 at every checkpoint. Before changing the recipe again, the next run
 measures whether the routing signal exists at all (`scripts/diagnose_routing.py`): output confidence and linear probes
 on the frozen preflight model, scored on dev.
+
+### Routing-signal diagnostic (preflight model, no training)
+
+**Run:** `scripts/diagnose_routing.py` in the preflight notebook, 8 Nov 2026. Frozen preflight model; target = "the direct
+answer is wrong" on 1,440 dev prompts (wrong rate 0.229); linear probes trained on 4,000 delegation_train prompts.
+
+| Signal | Dev AUROC |
+|---|---|
+| Low top next-token probability after `<ANSWER>` | **0.919** |
+| High entropy after `<ANSWER>` | 0.886 |
+| Low mean log-prob of the greedy answer | 0.890 |
+| Linear probe, hidden state at the decision position (after `<ASSISTANT>`) | 0.517 |
+| Linear probe, hidden state at the answer position (after `<ANSWER>`) | 0.528 |
+
+| Exposure | 0 | 40× | 120× | 300× |
+|---|---|---|---|---|
+| Direct answer wrong | 0.993 | 0.264 | 0.100 | 0.069 |
+| Top next-token probability after `<ANSWER>` | 0.228 | 0.428 | 0.616 | 0.756 |
+
+**Verdict:** the model does know what it does not know, but the knowledge is expressed in the *shape of its answer
+distribution* at the answer position (a nonlinear function of the hidden state: a linear probe does not recover it),
+not at the position where Phase 4 asked it to decide.
+
+**Change for preflight 3** (fixed before the run; data, preflight model and rule unchanged): the `answer_slot` format.
+`<BOS><USER> question<ASSISTANT><ANSWER>` is the decision prefix; the next token is either the answer's first word
+(direct answer) or `<CALL>` (then evidence and the copied answer). `<CALL>` competes in the same softmax as the answer
+words, so a spread-out answer distribution leaves room for `<CALL>` to win. Routing score =
+log p(`<CALL>`) − max log p(any other token); the forced direct answer never generates action tokens. The gate also
+reports, for reference, the AUROC of routing by the model's own answer confidence alone.
