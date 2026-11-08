@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from src.data import formats
-from src.evaluation.generate import greedy, next_token_logprobs
+from src.evaluation.generate import greedy, next_token_logprobs, slot_scores
 
 
 def predict(model, tok, prompts, evidence, fmt="question", run_id="", checkpoint="", tokenizer_hash="", batch_size=256,
@@ -20,11 +20,17 @@ def predict(model, tok, prompts, evidence, fmt="question", run_id="", checkpoint
     t0 = time.time()
     enc = lambda s: tok.encode(s).ids  # noqa: E731
     base = [formats.decision_ids(tok, fmt, p["question"], p["relation"], p["entity"]) for p in prompts]
-    route = next_token_logprobs(model, base, [formats.ANSWER, formats.CALL], batch_size)
+    if fmt == "answer_slot":
+        # logp_answer = best log-probability of any answer word; logp_call = log p(<CALL>) at the same position
+        route = [(best, lc) for lc, best in slot_scores(model, base, formats.CALL, batch_size)]
+        ans_prompts = base
+    else:
+        route = next_token_logprobs(model, base, [formats.ANSWER, formats.CALL], batch_size)
+        ans_prompts = [b + [formats.ANSWER] for b in base]
     t_route = time.time()
-
-    ans_prompts = [b + [formats.ANSWER] for b in base]
-    ans = greedy(model, ans_prompts, max_new, stop_ids=[formats.EOS, formats.BOS], batch_size=batch_size)
+    # forced direct answer: the action/evidence tokens can never be generated on this path
+    ans = greedy(model, ans_prompts, max_new, stop_ids=[formats.EOS, formats.BOS], batch_size=batch_size,
+                 ban_ids=[formats.CALL, formats.EV_OPEN, formats.EV_CLOSE, formats.ANSWER])
     t_ans = time.time()
 
     ev_text = [evidence.for_prompt(p) for p in prompts]
