@@ -112,6 +112,14 @@ def test_delegation_formats(built):
         ids, lab = formats.build_example_ids(tok, prefix, formats.call_target("Registry record: Oslo.", "Oslo"))
         sup = [t for t in lab if t != -100]
         assert sup[:2] == [formats.CALL, formats.EV_OPEN] and sup[2:] == tok.encode(" Oslo").ids + [formats.EOS]
+    slot = formats.decision_ids(tok, "answer_slot", q, rel, ent)
+    assert slot == question + [formats.ANSWER]                                      # <CALL> competes with the answer
+    ids, lab = formats.build_example_ids(tok, slot, formats.answer_target_for("answer_slot", "Oslo"))
+    assert [t for t in lab if t != -100] == tok.encode(" Oslo").ids + [formats.EOS]
+    assert lab[len(slot) - 1] == tok.encode(" Oslo").ids[0]                          # same position as <CALL> below
+    ids, lab = formats.build_example_ids(tok, slot, formats.call_target("Registry record: Oslo.", "Oslo"))
+    assert lab[len(slot) - 1] == formats.CALL
+    assert formats.answer_target_for("question", "Oslo") == formats.answer_target("Oslo")
     assert formats.format_of({"delegation": {"format": "cloze"}}) == "cloze" and formats.format_of({}) == "question"
     with pytest.raises(ValueError):
         formats.decision_ids(tok, "nope", q, rel, ent)
