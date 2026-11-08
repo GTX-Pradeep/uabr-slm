@@ -281,3 +281,35 @@ not at the position where Phase 4 asked it to decide.
 words, so a spread-out answer distribution leaves room for `<CALL>` to win. Routing score =
 log p(`<CALL>`) − max log p(any other token); the forced direct answer never generates action tokens. The gate also
 reports, for reference, the AUROC of routing by the model's own answer confidence alone.
+
+### Preflight 3 (GO)
+
+**Run:** same notebook, preflight model from run 1 reused, 8 Nov 2026. 38 tests passed. Phase 4 in the `answer_slot`
+format, otherwise as preflight 2 (reading practice, LR 3e-5, 1,011 updates). Best dev-subset AUROC at update 200 (0.663);
+later checks 0.58–0.66 while training loss fell to 0.005 (the training entities are memorised; dev uses other people).
+
+| Measure (full dev, 1,440 prompts) | Preflight 2 (`question`) | Preflight 3 (`answer_slot`) |
+|---|---|---|
+| Routing AUROC (95% CI) | 0.472 (0.432–0.510) | **0.663 (0.632–0.696)** |
+| AUROC vs knowledge label | 0.519 | **0.692** |
+| Reference: answer confidence alone | — | 0.716 |
+| Mutual information | 0.149 | **0.504** |
+| CALL rate by tier (0 / 40 / 120 / 300) | 0.03 / 0.05 / 0.05 / 0.05 | **0.80 / 0.63 / 0.58 / 0.37** |
+| Default call rate | 0.049 | 0.549 |
+| Accuracy at 10% call budget | 0.690 | 0.666 |
+| Direct accuracy, known / unknown facts | 0.797 / 0.128 | 0.733 / 0.077 |
+| CALL-path accuracy where retrieved | 0.797 | 0.784 |
+| Failed gate checks | 4 | 2 (both_actions_learned: ANSWER recall 0.49; call_path_works: 0.784 < 0.9) |
+
+| Rule | Result |
+|---|---|
+| question_recall | PASS |
+| exposure_gradient | PASS |
+| real_decision | **PASS** |
+| **Preflight** | **GO** |
+
+**Reading.** For the first time the decision depends on what the model knows: the CALL rate falls steadily with
+exposure, and mutual information is 0.50 bits. Open points for the full `base_v2` run: the learned router (0.663)
+still sits below the model's own answer confidence (0.716); the best checkpoint calls too often at the default threshold
+(the budget metrics are rank-based and unaffected); and the CALL path copies the right record 78% of the time.
+Next: Phase 3 on data_v2 (1B tokens), then Phase 4 with the same recipe.
