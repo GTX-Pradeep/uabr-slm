@@ -22,8 +22,9 @@ def _autocast(device):
 
 
 @torch.no_grad()
-def greedy(model, prompts, max_new=12, stop_ids=(), batch_size=256):
-    """prompts: list of token-id lists. Returns a list of generated id lists (stop token excluded)."""
+def greedy(model, prompts, max_new=12, stop_ids=(), batch_size=256, ban_ids=()):
+    """prompts: list of token-id lists. Returns a list of generated id lists (stop token excluded).
+    ban_ids: tokens that may never be generated (e.g. <CALL> on the forced direct-answer path)."""
     model.eval()
     dev = next(model.parameters()).device
     stop_set = set(stop_ids)
@@ -35,7 +36,10 @@ def greedy(model, prompts, max_new=12, stop_ids=(), batch_size=256):
         for _ in range(max_new):
             with _autocast(dev):
                 logits, _ = model(x[:, -model.cfg.max_seq_len:])
-            nxt = logits[:, -1].float().argmax(-1)
+            step = logits[:, -1].float()
+            if ban_ids:
+                step[:, list(ban_ids)] = float("-inf")
+            nxt = step.argmax(-1)
             x = torch.cat([x, nxt[:, None]], 1)   # finished rows keep decoding; their extra tokens are cut below
             if stop is not None:
                 done |= torch.isin(nxt, stop)
@@ -65,6 +69,29 @@ def next_token_logprobs(model, prompts, token_ids, batch_size=256):
         lp = torch.log_softmax(logits[:, -1].float(), -1)[:, token_ids]
         for row, i in enumerate(idx):
             out[i] = lp[row].tolist()
+    return out
+
+
+@torch.no_grad()
+def slot_scores(model, prompts, token_id, batch_size=256):
+    """At the next position: log p(token_id) and the best log-probability of any other token.
+
+    Used for the answer-slot format, where <CALL> competes with the answer's first word: when the model is unsure of
+    its answer, the probability mass of the answer words is spread out and <CALL> can win.
+    Returns a list of (logp_token, logp_best_other)."""
+    model.eval()
+    dev = next(model.parameters()).device
+    out = [None] * len(prompts)
+    for idx in _groups(prompts, batch_size):
+        x = torch.tensor([prompts[i] for i in idx], device=dev)
+        with _autocast(dev):
+            logits, _ = model(x)
+        lp = torch.log_softmax(logits[:, -1].float(), -1)
+        tok_lp = lp[:, token_id].clone()
+        lp[:, token_id] = float("-inf")
+        best = lp.max(-1).values
+        for row, i in enumerate(idx):
+            out[i] = (tok_lp[row].item(), best[row].item())
     return out
 
 
