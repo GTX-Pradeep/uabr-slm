@@ -142,7 +142,7 @@ def delegation_v2(built_v2, tmp_path_factory):
     cfg["finetune"]["eval_every_steps"] = 0
     yaml.safe_dump(cfg, open(d / "cfg.yaml", "w"))
     run("scripts/train_delegation.py", "--config", str(d / "cfg.yaml"), "--base", str(d / "base"), "--data", str(built_v2),
-        "--knowledge", str(d / "k.parquet"), "--out", str(d / "deleg"), "--format", "question", "--quick", "--device", "cpu")
+        "--knowledge", str(d / "k.parquet"), "--out", str(d / "deleg"), "--format", "answer_slot", "--quick", "--device", "cpu")
     return d
 
 
@@ -158,7 +158,8 @@ def test_copy_example_teaches_reading_not_routing(built_v2):
 
 def test_v2_delegation_gate(delegation_v2):
     rep = json.load(open(delegation_v2 / "deleg" / "gate_report.json"))
-    assert rep["format"] == "question"
+    assert rep["format"] == "answer_slot"
+    assert "confidence_baseline_auroc" in rep
     assert 0.6 < rep["record_retrieved_share"] < 0.95
     assert "call_path_accuracy_record_retrieved" in rep
     assert set(rep["checks"]) == {"both_actions_learned", "useful_ranking", "direct_path_works", "call_path_works",
