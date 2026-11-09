@@ -374,3 +374,43 @@ A CALL target is never given where the keyword search does not return the right 
 
 If Phase 5 returns NO_CHANGE (SFT does not damage the policy), Phase 6 is still run and reported, but the paper's
 framing becomes "replay is not needed at this scale" rather than "replay repairs damage".
+
+## Phase 4 v2: delegation_v1 on base_v2
+
+**Run:** `notebooks/phase4_delegation.ipynb`, `DATA_VERSION = "data_v2"`, `QUICK = False` (Kaggle `uabr-p4-delegation-v2`,
+commit `065eec5`), 9 Nov 2026. 48/48 tests passed first. **Gate: PASSED (6/6)**
+
+**Knowledge labels** (question-format recall of `base_v2`, 5,760 non-test facts):
+
+| Exposure | 0 | 40× | 120× | 300× |
+|---|---|---|---|---|
+| Known, question format | 0.036 | 0.683 | 0.975 | 0.998 |
+| Known, cloze format | 0.043 | 0.577 | 0.896 | 0.969 |
+
+ANSWER share: delegation_train 0.799, dev 0.810, replay_construction 0.797.
+
+**Training:** `answer_slot`, LR 3e-5, 1,128 updates (3 epochs, 4.3M tokens), 17,124 reading-practice examples, 870
+unknown-fact prompts left out because their record is not retrieved. Dev AUROC checked every 200 updates:
+0.665 (200), 0.650, **0.673 (400, kept)**, 0.659, 0.670, 0.649, 0.656, 0.658 (end). Training loss fell to ~0.005, so the
+early-stopping rule mattered.
+
+**Gate on full dev (1,440 prompts):**
+
+| Item | Result |
+|---|---|
+| Routing AUROC vs benefit | **0.673** (95% CI 0.643–0.706); AP 0.387 |
+| Reference: AUROC of the model's own answer confidence | 0.749 |
+| Direct accuracy, known vs unknown facts | 0.777 vs 0.099 |
+| CALL-path accuracy | 0.758 overall; **0.974** where the record is retrieved (78% of prompts) |
+| End-to-end accuracy | always answer 0.648 · default decision 0.742 (call rate 0.358) · always call 0.758 · oracle 0.906 |
+| Accuracy at 5 / 10 / 20% call budget | 0.664 / **0.685** / 0.715 |
+| Mutual information (decisiveness) | **0.467 bits**; near-coin-flip prompts 8.3% |
+| CALL rate by tier | 0× 0.57 · 40× 0.42 · 120× 0.37 · 300× 0.21 |
+| Checks | both_actions, useful_ranking, direct_path, call_path, decisive_policy, tier_sensitive: **all PASS** |
+
+**Reading.** For the first time on the full-scale model, the answer-or-call decision depends on what the model
+knows: the CALL rate halves from never-shown to 300× facts, and the decision is confident per prompt (0.47 bits).
+Two limits are reported as they are: the learned router ranks prompts less well than the model's own answer confidence
+(0.673 vs 0.749), and "always call" (0.758) beats the default decision (0.742) because the CALL path is right 97% of
+the time when retrieval works. The Phase 5 and 6 comparisons are about whether SFT damages *this* policy and which replay
+keeps it, so the main metric is relative: change in accuracy at a fixed 10% call budget.
