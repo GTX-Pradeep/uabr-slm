@@ -37,7 +37,8 @@ Wikipedia + pseudonymous facts ─► 40M base model ─► <ANSWER>/<CALL> poli
 | 4 | Frozen evidence index + delegation training | Kaggle / Colab, < 1 h | Six gate checks | ❌ v1: 3 attempts failed (see results) → **version 2** |
 | 2 v2 | `data_v2`: Q&A in pretraining, fallible CALL | Kaggle CPU, ~2.5 h | 8 audits | ✅ passed (8/8) |
 | Preflight v2 | 1/10-scale Phases 3 + 4 | Kaggle T4, ~45 min | GO/STOP rule | ✅ **GO** (run 3): CALL rate 0.80 → 0.37 from never-shown to 300× facts |
-| 3 v2 | `base_v2` pretraining | Kaggle T4, ~5 h | Recall by tier | ⏳ run next |
+| 3 v2 | `base_v2` pretraining | Kaggle T4, ~5 h | Recall by tier | ✅ passed (val loss 2.805; 300× facts 97%) |
+| 4 v2 | Delegation on `base_v2` (`answer_slot`) | Kaggle T4, ~15 min | Six gate checks | ⏳ run next |
 | 5 | No-replay interference pilot | Kaggle / Colab, ~2 h | Go / no-go note written | 🟡 code in repo · run after Phase 4 |
 | 6 | Utility labels + SFT with each replay method × 2 seeds | Kaggle, spread over accounts | Equal-budget checkpoints | ⏳ |
 | 7 | Test evaluation, paired bootstrap, error analysis | Colab, < 1 h | Frozen prediction tables + figures | ⏳ |
