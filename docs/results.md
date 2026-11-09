@@ -313,3 +313,27 @@ exposure, and mutual information is 0.50 bits. Open points for the full `base_v2
 still sits below the model's own answer confidence (0.716); the best checkpoint calls too often at the default threshold
 (the budget metrics are rank-based and unaffected); and the CALL path copies the right record 78% of the time.
 Next: Phase 3 on data_v2 (1B tokens), then Phase 4 with the same recipe.
+
+## Phase 3 v2: base_v2
+
+**Run:** `notebooks/phase3_pretrain.ipynb`, `DATA_VERSION = "data_v2"`, `QUICK = False` (Kaggle `uabr-p3-pretrain-v2`), 9 Nov 2026,
+one session. **Gate: PASSED**
+
+| Item | Result |
+|---|---|
+| Data | data_v2, 1,005,003,687 train tokens, 8/8 audits |
+| Steps / tokens | 15,260 / 1,000,079,360 |
+| Throughput | ~50,000 tokens/s with `--compile`, no NaN, peak memory 5.2 GB |
+| Validation loss | 4.443 (step 500) → 3.341 (2k) → 3.072 (5k) → 2.890 (10k) → **2.805** (15k), perplexity 16.5 (base_v1: 2.814) |
+| Final training loss | 2.826 |
+| Checkpoint | `base_v2.pt`, 159 MB |
+
+**Fact probe** (cloze, greedy exact match, 300 facts per tier):
+
+| Exposure | 0 (withheld) | 40× | 120× | 300× |
+|---|---|---|---|---|
+| Exact match | 0.037 | 0.613 | 0.913 | **0.967** |
+| Mean gold log-prob | −6.25 | −1.55 | −0.59 | −0.32 |
+
+Language modelling is as good as base_v1 (validation loss 2.805 vs 2.814) although ~1.3% of the corpus is now fact
+exposures, and the controlled facts are stored by exposure as designed. Next: Phase 4 on base_v2 (`answer_slot`).
