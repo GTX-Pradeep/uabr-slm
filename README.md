@@ -38,7 +38,7 @@ Wikipedia + pseudonymous facts ─► 40M base model ─► <ANSWER>/<CALL> poli
 | 2 v2 | `data_v2`: Q&A in pretraining, fallible CALL | Kaggle CPU, ~2.5 h | 8 audits | ✅ passed (8/8) |
 | Preflight v2 | 1/10-scale Phases 3 + 4 | Kaggle T4, ~45 min | GO/STOP rule | ✅ **GO** (run 3): CALL rate 0.80 → 0.37 from never-shown to 300× facts |
 | 3 v2 | `base_v2` pretraining | Kaggle T4, ~5 h | Recall by tier | ✅ passed (val loss 2.805; 300× facts 97%) |
-| 4 v2 | Delegation on `base_v2` (`answer_slot`) | Kaggle T4, ~15 min | Six gate checks | ⏳ run next |
+| 4 v2 | Delegation on `base_v2` (`answer_slot`) | Kaggle T4, ~1 h | Six gate checks | ⏳ running |
 | 5 | No-replay interference pilot | Kaggle / Colab, ~2 h | Go / no-go note written | 🟡 code in repo · run after Phase 4 |
 | 6 | Replay table + Random / BPR / UABR selection + SFT × 2 seeds | Kaggle T4, ~2 h | Equal updates, instruction and replay tokens | 🟡 code in repo (preregistered plan in results) |
 | 7 | Test evaluation (opened once), paired bootstrap | Kaggle T4, ~30 min | Prediction tables, comparisons, figure | 🟡 code in repo · same notebook as Phase 6 |
