@@ -39,8 +39,8 @@ Wikipedia + pseudonymous facts ─► 40M base model ─► <ANSWER>/<CALL> poli
 | Preflight v2 | 1/10-scale Phases 3 + 4 | Kaggle T4, ~45 min | GO/STOP rule | ✅ **GO** (run 3): CALL rate 0.80 → 0.37 from never-shown to 300× facts |
 | 3 v2 | `base_v2` pretraining | Kaggle T4, ~5 h | Recall by tier | ✅ passed (val loss 2.805; 300× facts 97%) |
 | 4 v2 | Delegation on `base_v2` (`answer_slot`) | Kaggle T4, ~15 min + tests | Six gate checks | ✅ passed (6/6): AUROC 0.673, MI 0.47 bits, CALL rate 0.57 → 0.21 by tier |
-| 5 | No-replay interference pilot | Kaggle T4, ~1 h | Go / no-go note written | ⏳ running |
-| 6 | Replay table + Random / BPR / UABR selection + SFT × 2 seeds | Kaggle T4, ~2 h | Equal updates, instruction and replay tokens | 🟡 code in repo (preregistered plan in results) |
+| 5 | No-replay interference pilot | Kaggle T4, ~1 h | Go / no-go note written | ✅ **GO**: SFT damages the policy in both seeds (AUROC 0.673 → 0.54/0.56; acc@10% 0.685 → 0.36) |
+| 6 | Replay table + Random / BPR / UABR selection + SFT × 2 seeds | Kaggle T4, ~2 h | Equal updates, instruction and replay tokens | ⏳ running |
 | 7 | Test evaluation (opened once), paired bootstrap | Kaggle T4, ~30 min | Prediction tables, comparisons, figure | 🟡 code in repo · same notebook as Phase 6 |
 
 Every phase runs a miniature version on the same code path first, then the full version.
