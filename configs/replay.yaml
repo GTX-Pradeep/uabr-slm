@@ -1,0 +1,13 @@
+# Phase 6: SFT + replay. Fixed before any Phase 6 result (docs/results.md, "Phase 6 plan").
+# Every branch: the Phase 5 instruction batches for its seed + the same number of replay tokens, mixed into the same
+# batches (scripts/run_sft.py), so branches differ only in WHICH replay examples they add and with WHICH target action.
+seeds: [11, 29]
+methods: [random, bpr, uabr]       # Standard SFT = the Phase 5 pilot's 100% checkpoints (no replay)
+
+# data_v2's replay_construction pool is small (2,880 prompts), so a fixed share is selected and then cycled:
+select_frac: 0.25      # each method selects candidates worth 25% of the pool's tokens (distinct examples)
+replay_frac: 0.05      # ...repeated in a fixed order until replay tokens = 5% of the instruction tokens (identical per method)
+
+uabr:
+  tau: median          # temperature of exp(-margin / tau); "median" = median |call_score| of the replay table
+  call_cost: 0.1       # lambda in Delta U = R(call) - R(answer) - lambda: a small, fixed price for calling
