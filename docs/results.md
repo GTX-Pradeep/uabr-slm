@@ -337,3 +337,40 @@ one session. **Gate: PASSED**
 
 Language modelling is as good as base_v1 (validation loss 2.805 vs 2.814) although ~1.3% of the corpus is now fact
 exposures, and the controlled facts are stored by exposure as designed. Next: Phase 4 on base_v2 (`answer_slot`).
+
+## Phase 6 + 7 plan (fixed before any Phase 6 or test result)
+
+Written on 9 Nov 2026, before Phase 4 v2 finished. Nothing below changes after results come in; any deviation is
+reported as a deviation.
+
+**Branches** (each from `delegation_v1`, seeds 11 and 29): Standard SFT (the Phase 5 100% checkpoints), SFT + Random
+replay, SFT + BPR replay, SFT + UABR replay. 8 branches in total.
+
+**Matched budget.** All branches with the same seed use identical instruction batches and make the same number of
+updates. Replay examples are added inside those batches. Each replay method selects candidates worth 25% of the
+`replay_construction` pool's tokens, then repeats them in a fixed shuffled order up to 5% of the instruction tokens, so
+replay tokens are equal across methods (`configs/replay.yaml`).
+
+**Selection** (`src/replay/selectors.py`), all from one scoring pass of `delegation_v1` over `replay_construction`
+(people not used for Phase 4 training, dev or test):
+
+| Method | Order | Replay target |
+|---|---|---|
+| Random | seeded shuffle | Phase 4 knowledge label |
+| BPR | smallest margin \|call_score\| first | Phase 4 knowledge label |
+| UABR | largest exp(−m/τ)·\|ΔU\|, ΔU = R(call) − R(answer) − 0.1, τ = median margin | CALL if ΔU > 0, else ANSWER |
+
+A CALL target is never given where the keyword search does not return the right record.
+
+**Test split** is opened once, by `scripts/final_eval.py`, on all test prompts.
+
+- **Primary endpoint:** exact-match accuracy at a 10% call budget (top 10% of prompts by call score call).
+- **Primary comparison:** UABR − Standard, UABR − BPR and UABR − Random, paired bootstrap (2,000 resamples, same test
+  prompts), separately per seed.
+- **Claim rule:** "UABR protects the policy better than X" only if the 95% CI excludes 0 in favour of UABR for **both**
+  seeds. One seed significant = "suggestive". Otherwise = "no difference detected".
+- **Secondary (reported, no claims):** routing AUROC, accuracy at 5% and 20% budgets, harmful-answer and wasteful-call
+  rates, mutual information, CALL rate for never-shown vs 300× facts, ECE.
+
+If Phase 5 returns NO_CHANGE (SFT does not damage the policy), Phase 6 is still run and reported, but the paper's
+framing becomes "replay is not needed at this scale" rather than "replay repairs damage".
