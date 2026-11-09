@@ -45,13 +45,30 @@ Phase 6 may start before this note is final. A non-GO result changes what the wr
 
 ## Results
 
-*(to be filled from `runs/pilot/pilot_report.json` and `pilot_table.csv`)*
+Run: `notebooks/phase5_pilot.ipynb`, `data_v2`, `QUICK = False` (Kaggle `uabr-p5-pilot-v2`, commit `3a9e176`), 9 Nov 2026.
+Each SFT run: 1,092 updates, 6,000,073 instruction tokens, ~7.7 min. Dev: 1,440 prompts, 1,000 bootstrap resamples.
 
 | Seed | Δ AUROC [95% CI] | Δ acc@10% re-picked [95% CI] | Δ acc@10% frozen [95% CI] | Instruction loss fell |
 |---|---|---|---|---|
-| 11 | | | | |
-| 29 | | | | |
+| 11 | −0.134 [−0.178, −0.094] | −0.326 [−0.355, −0.301] | −0.345 [−0.372, −0.317] | yes (3.116 → 2.481) |
+| 29 | −0.115 [−0.156, −0.072] | −0.330 [−0.356, −0.301] | −0.340 [−0.367, −0.311] | yes (3.116 → 2.480) |
 
-**Decision:**
+**Decision: GO.** Both threshold-free measures drop significantly in both seeds, so recalibration cannot repair the
+damage. Phase 6 is the main claim.
+
+Over the course of SFT (seed 11 / seed 29):
+
+| | 0% | 25% | 50% | 100% |
+|---|---|---|---|---|
+| Routing AUROC | 0.673 | 0.610 / 0.632 | 0.603 / 0.618 | 0.538 / 0.558 |
+| Accuracy at 10% budget | 0.685 | 0.516 / 0.548 | 0.492 / 0.503 | 0.358 / 0.355 |
+| Mutual information (bits) | 0.467 | 0.248 / 0.265 | 0.331 / 0.332 | 0.376 / 0.341 |
+| Default call rate | 0.358 | 0.076 / 0.086 | 0.135 / 0.144 | 0.225 / 0.165 |
+| CALL rate, never-shown / 300× facts | 0.57 / 0.21 | 0.09 / 0.03 | 0.20 / 0.07 | 0.31 / 0.17 · 0.24 / 0.12 |
+
+Reading: early in SFT the model nearly stops calling (default call rate 0.36 → 0.08), then calling partly returns, but
+the ranking keeps degrading (AUROC falls monotonically) and accuracy at a fixed call budget halves. The accuracy drop
+is larger than the AUROC drop alone would explain, so SFT also hurts the direct-answer path on the controlled facts,
+not only the routing decision.
 
 **Signed off:** ☐ ☐ ☐ ☐
