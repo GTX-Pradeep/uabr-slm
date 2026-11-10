@@ -99,9 +99,11 @@ def train(model, epochs_examples, cfg, base_config, out_dir, eval_fn=None, selec
     step, tokens, sup_tokens = 0, 0, 0
     best, best_val = None, -float("inf")
     evaluated_epochs = 0
+    rp = out / "resume.pt"
+    if resume and not rp.exists():
+        log(f"[resume] no {rp} yet: starting from step 0")   # lets notebooks always pass --resume
+        resume = False
     if resume:
-        rp = out / "resume.pt"
-        assert rp.exists(), f"--resume given but {rp} does not exist"
         st = torch.load(rp, map_location="cpu", weights_only=False)
         assert st["total_steps"] == total, "resumed run must rebuild the same batches (same data, seed, epochs)"
         (model._orig_mod if hasattr(model, "_orig_mod") else model).load_state_dict(st["model"])
