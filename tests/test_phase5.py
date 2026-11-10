@@ -63,7 +63,8 @@ def pilot(built, tmp_path_factory):
     with open(d / "replay.jsonl", "w") as f:
         for i, pid in enumerate(rc):
             f.write(json.dumps({"prompt_id": pid, "target": "CALL" if i % 2 else "ANSWER"}) + "\n")
-    run("scripts/run_sft.py", *common, "--seed", "11", "--out", str(d / "rep"), "--replay", str(d / "replay.jsonl"))
+    run("scripts/run_sft.py", *common, "--seed", "11", "--out", str(d / "rep"), "--replay", str(d / "replay.jsonl"),
+        "--resume")                                                 # --resume on a fresh run must start from step 0
     run("scripts/pilot_eval.py", "--data", str(built), "--delegation", str(d / "base"), "--runs", str(d / "std"),
         "--out", str(d / "pilot"), "--quick", "--n_boot", "20", "--device", "cpu")
     return d
