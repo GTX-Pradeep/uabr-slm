@@ -5,7 +5,7 @@
 | English Wikipedia, dump 20231101.en | Pretraining text (~99% of the 1.005B tokens) | https://huggingface.co/datasets/wikimedia/wikipedia | CC BY-SA 3.0 / GFDL |
 | Wikidata | Real answer values for the controlled facts (cities, countries, languages, occupations, years) | https://www.wikidata.org (SPARQL: https://query.wikidata.org) | CC0 |
 | Databricks Dolly-15k | Instruction tuning (SFT) | https://huggingface.co/datasets/databricks/databricks-dolly-15k | CC BY-SA 3.0 |
-| Alpaca (cleaned) | Instruction tuning (SFT) | https://huggingface.co/datasets/yahma/alpaca-cleaned (original: https://github.com/tatsu-lab/stanford_alpaca) | CC BY-NC 4.0 |
+| Alpaca (cleaned) | Instruction tuning (SFT) | https://huggingface.co/datasets/yahma/alpaca-cleaned (original: https://github.com/tatsu-lab/stanford_alpaca) | CC BY 4.0 per the dataset card (original Stanford Alpaca data: CC BY-NC 4.0, research use) |
 
 ## The controlled facts (not downloaded)
 
