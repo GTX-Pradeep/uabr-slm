@@ -17,7 +17,9 @@ quietly break that habit, because SFT demonstrations almost always reward answer
    random, by boundary margin (BPR), and by **UABR (Utility-Anchored Boundary Replay)**, which picks examples that are
    both close to the decision boundary *and* where the choice actually changes the outcome:
 
-$$ s_i = \exp(-m_i/\tau)\cdot|b_i|, \qquad b_i = R_i(\text{call}) - R_i(\text{answer}) $$
+$$ s_i = \exp(-m_i/\tau)\cdot|\Delta U_i|, \qquad \Delta U_i = R_i(\text{call}) - R_i(\text{answer}) - \lambda $$
+
+and replays the action that actually wins (CALL if $\Delta U_i > 0$).
 
 All methods get identical batches, update counts and replay-token budgets. The primary metric is held-out
 exact-match accuracy at a fixed 10% call budget.
@@ -40,10 +42,31 @@ Wikipedia + pseudonymous facts ─► 40M base model ─► <ANSWER>/<CALL> poli
 | 3 v2 | `base_v2` pretraining | Kaggle T4, ~5 h | Recall by tier | ✅ passed (val loss 2.805; 300× facts 97%) |
 | 4 v2 | Delegation on `base_v2` (`answer_slot`) | Kaggle T4, ~15 min + tests | Six gate checks | ✅ passed (6/6): AUROC 0.673, MI 0.47 bits, CALL rate 0.57 → 0.21 by tier |
 | 5 | No-replay interference pilot | Kaggle T4, ~1 h | Go / no-go note written | ✅ **GO**: SFT damages the policy in both seeds (AUROC 0.673 → 0.54/0.56; acc@10% 0.685 → 0.36) |
-| 6 | Replay table + Random / BPR / UABR selection + SFT × 2 seeds | Kaggle T4, ~2 h | Equal updates, instruction and replay tokens | ⏳ running |
-| 7 | Test evaluation (opened once), paired bootstrap | Kaggle T4, ~30 min | Prediction tables, comparisons, figure | 🟡 code in repo · same notebook as Phase 6 |
+| 6 | Replay table + Random / BPR / UABR selection + SFT × 2 seeds | Kaggle T4, ~1 h | Equal updates, instruction and replay tokens | ✅ done (1,092 updates, 6.0M instruction + 0.30M replay tokens per branch) |
+| 7 | Test evaluation, paired bootstrap | Kaggle T4, ~20 min | Prediction tables, comparisons | ✅ done: replay helps; **UABR does not beat Random or BPR** (see Results) |
 
 Every phase runs a miniature version on the same code path first, then the full version.
+
+## Results (test split, 2,880 prompts, 2 seeds)
+
+| Branch | Acc. @10% call budget | Routing AUROC | Mutual information | CALL rate never-shown / 300× |
+|---|---|---|---|---|
+| `delegation_v1` (before SFT) | 0.704 | 0.684 | 0.444 | 0.56 / 0.20 |
+| Standard SFT (no replay) | 0.327 | 0.502 | 0.356 | 0.27 / 0.18 |
+| SFT + Random replay | **0.478** | 0.591 | 0.535 | 0.62 / 0.44 |
+| SFT + BPR replay | 0.453 | 0.599 | 0.547 | 0.63 / 0.42 |
+| SFT + UABR replay | 0.423 | 0.599 | 0.298 | 0.95 / 0.88 |
+
+Mean over seeds 11 and 29; per-seed values and all confidence intervals are in [`docs/results.md`](docs/results.md).
+
+1. **SFT destroys the policy.** Without replay, accuracy at a 10% call budget falls from 0.704 to 0.33 and routing
+   AUROC to chance (0.50).
+2. **Any replay helps a lot.** 5% replay tokens recovers about 40% of the lost accuracy and half the lost AUROC
+   (all replay − Standard differences significant in both seeds).
+3. **UABR is not better than the baselines.** Under the preregistered rule, UABR beats Standard SFT (+0.096 accuracy,
+   both seeds) but is significantly **worse** than Random (−0.055) and BPR (−0.030) on the primary metric in both
+   seeds, and tied on AUROC. Its utility-based targets are 65% CALL (vs ~20% for the baselines), which pushes the model
+   towards calling almost always and gives fewer direct-answer examples to rehearse.
 
 ## Model
 
