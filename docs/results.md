@@ -414,3 +414,18 @@ Two limits are reported as they are: the learned router ranks prompts less well 
 (0.673 vs 0.749), and "always call" (0.758) beats the default decision (0.742) because the CALL path is right 97% of
 the time when retrieval works. The Phase 5 and 6 comparisons are about whether SFT damages *this* policy and which replay
 keeps it, so the main metric is relative: change in accuracy at a fixed 10% call budget.
+
+## Phase 6 + 7, run 1 (crashed; deviation note)
+
+**Run:** `notebooks/phase6_7_replay_eval.ipynb`, `QUICK = False` (Kaggle `uabr-p67-replay`, commit `f193929`), 10 Nov 2026.
+
+Steps 1–2 completed: the replay table (2,880 prompts; record retrieved 79.8%; benefit −1 / 0 / +1 = 367 / 1,741 / 772;
+median margin 2.12) and the selections (pool 72,511 tokens; each method selects 18,127 tokens and replays 300,003 tokens).
+All six SFT runs then stopped at once: the notebook passes `--resume`, and `src/train/sft.py` refused `--resume` when no
+checkpoint existed yet. `final_eval.py` then scored `delegation_v1` and the two Standard SFT branches on test before
+failing on the missing replay checkpoints.
+
+**Deviation.** The test split was therefore read once already for those three models (`delegation_v1` acc@10% 0.704, AUROC
+0.684; Standard s11 0.324 / 0.511; Standard s29 0.331 / 0.493). The fix (`--resume` on a fresh run now starts from step 0)
+changes no method, setting, selection or claim rule; the replay files are regenerated identically from the same table
+and seeds. Run 2 repeats the whole notebook, and its numbers are the reported ones.
