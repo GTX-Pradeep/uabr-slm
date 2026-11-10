@@ -26,10 +26,7 @@ exact-match accuracy at a fixed 10% call budget.
 
 ## Pipeline
 
-```
-Wikipedia + pseudonymous facts ─► 40M base model ─► <ANSWER>/<CALL> policy ─► SFT (+ replay variants) ─► one test evaluation
-        Phase 2                     Phase 3              Phase 4               Phases 5–6                  Phase 7
-```
+![Pipeline](docs/figures/pipeline.png)
 
 | Phase | What it does | Where it runs | Gate to pass | Status |
 |---|---|---|---|---|
@@ -68,6 +65,44 @@ Mean over seeds 11 and 29; per-seed values and all confidence intervals are in [
    seeds, and tied on AUROC. Its utility-based targets are 65% CALL (vs ~20% for the baselines), which pushes the model
    towards calling almost always and gives fewer direct-answer examples to rehearse.
 
+![Final results](docs/figures/final_results.png)
+
+| SFT without replay (dev, Phase 5) | What each replay method selects |
+|---|---|
+| ![Pilot](docs/figures/phase5_pilot.png) | ![Selection](docs/figures/replay_selection.png) |
+
+More figures: [recall by exposure](docs/figures/recall_by_exposure.png) ·
+[Phase 4 attempts](docs/figures/phase4_attempts.png) · [routing diagnostic](docs/figures/routing_diagnostic.png) ·
+[policy by tier](docs/figures/phase4_policy_by_tier.png) · [CALL rate after SFT](docs/figures/final_call_rate.png).
+
+## Contributions
+
+1. **A controlled testbed** in which "does the model know this fact?" is measurable: invented people, exact exposure
+   counts (0 / 40 / 120 / 300), a fallible top-3 keyword retriever, and a 40M model trained from scratch.
+2. **A knowledge-dependent delegation policy** that passes six preregistered checks (CALL rate 0.57 → 0.21 from
+   never-shown to 300× facts, 0.47 bits of decisiveness), plus a documented account of why simpler formats failed.
+3. **Evidence that instruction tuning destroys this policy** (routing AUROC to chance, budgeted accuracy halved, both
+   seeds) and that **5% replay recovers about 40% of it**.
+4. **A negative result for utility-based replay selection (UABR):** under matched budgets and a preregistered claim
+   rule it loses to Random and boundary replay, because utility-chosen targets skew the action mix towards CALL.
+
+Replay, abstention and tool use are established topics; the contribution is the controlled measurement of a
+*delegation policy* under SFT and the comparison of selectors under identical budgets.
+
+## Reproduce end to end (Kaggle, free T4)
+
+| Order | Notebook | Inputs (Add Input → Your Work) | Time |
+|---|---|---|---|
+| 1 | `phase1_setup_and_smoke` | – | ~20 min |
+| 2 | `phase2v2_build_data` (CPU, Internet on) | – | ~2.5 h |
+| 3 | `phase3_pretrain` (`DATA_VERSION = "data_v2"`) | step 2 | ~5 h |
+| 4 | `phase4_delegation` | steps 2, 3 | ~20 min |
+| 5 | `phase5_pilot` | steps 2, 4 | ~1 h |
+| 6 | `phase6_7_replay_eval` | steps 2, 4, 5 | ~1 h 15 min |
+
+Each notebook runs the 48 tests first and has a `QUICK = True` mode that checks the pipeline in minutes.
+`preflight_v2.ipynb` (1/10-scale Phases 3 + 4) and the `data_v1` notebooks reproduce the documented version-1 path.
+
 ## Model
 
 Decoder-only transformer, trained from random initialisation:
@@ -91,7 +126,7 @@ Open `notebooks/phase1_setup_and_smoke.ipynb` on Kaggle (Accelerator: **GPU T4 x
 git clone https://github.com/GTX-Pradeep/uabr-slm.git && cd uabr-slm
 pip install -q -r requirements.txt          # torch is preinstalled on Kaggle/Colab
 python scripts/check_gpu.py
-python -m pytest tests -q                   # 7 tests, ~1 min
+python -m pytest tests -q                   # 48 tests, ~5 min on CPU
 python scripts/make_synthetic_data.py --out_dir data/processed/synthetic
 python src/train/pretrain.py --config configs/smoke_40m.yaml --max_steps 300 --mirror_dir persist/smoke_pretrain
 python src/train/pretrain.py --config configs/smoke_40m.yaml --resume persist/smoke_pretrain --max_steps 350
@@ -103,16 +138,13 @@ Phase 1 results are in [`docs/results.md`](docs/results.md).
 
 ## Phases 2–3: data and pretraining
 
-These were already built once by the team, so the outputs are reused rather than rebuilt:
+The final results use **version 2** (`data_v2`, `base_v2`, next section). Version 1 is kept because its failure is
+part of the findings.
 
-- **`data_v1`** (Phase 2 output): `pretrain/train.bin` + `val.bin`, `facts/` (exposure ledger, prompts,
-  evidence), `sft/` (instruction data), `tokenizer/` and the audit report.
-- **`base_v1`** (Phase 3 output): the pretrained 40M checkpoint.
+Each data notebook writes `pretrain/train.bin` + `val.bin`, `facts/` (exposure ledger, prompts, evidence), `sft/`
+(instruction data), `tokenizer/` and an audit report. Later notebooks find them automatically under `/kaggle/input/`.
 
-On Kaggle, attach them with **+ Add Input → Notebook Output Files**. Later notebooks find `data_v1` automatically
-under `/kaggle/input/`.
-
-**How the data is designed.** 12,000 invented people (for example "Varnek Holloway") each get 3 real-looking facts,
+**How the version-1 data is designed.** 12,000 invented people (for example "Varnek Holloway") each get 3 real-looking facts,
 36,000 in total. Because the names are invented, Wikipedia cannot leak the answers. About half the facts appear in the
 pretraining text 5, 20 or 80 times; the rest never appear and exist only in the evidence source. A 40M model learns
 the 80× facts but not the 5× ones, so real examples land on both sides of the answer-or-call boundary. Facts are split
@@ -246,10 +278,8 @@ configs/replay.yaml (Phase 6 settings) · configs/sft_methods/  standard.yaml (t
 tests/      test_model.py · test_data.py · test_phase4.py · test_phase5.py · test_v2.py · test_replay.py · conftest.py
 notebooks/  phase1_setup_and_smoke.ipynb · phase2_build_data.ipynb · phase3_pretrain.ipynb · phase4_delegation.ipynb · phase5_pilot.ipynb
             phase2v2_build_data.ipynb · preflight_v2.ipynb · phase6_7_replay_eval.ipynb
-docs/       results.md (gate results per phase) · pilot_decision.md (preregistered pilot rule)
+docs/       results.md (every run, including failures) · pilot_decision.md (preregistered pilot rule) · figures/
 ```
-
-Later phases add `src/replay` and one notebook per phase.
 
 ## Ground rules
 
@@ -259,7 +289,10 @@ Later phases add `src/replay` and one notebook per phase.
 4. Every run folder holds its resolved config, manifest, metrics and checkpoint pointer.
 5. Nothing large goes into Git: data and checkpoints live in Kaggle Datasets, Google Drive or the Hugging Face Hub.
 
-## Scope
+## Scope and limitations
 
 Claims are limited to this ~40M model, controlled factual data, supervised instruction tuning and a frozen evidence
-source.
+source, with two seeds. The learned router (dev AUROC 0.673) is weaker than the model's own answer confidence (0.749).
+The first Phase 6 + 7 run crashed after scoring three models on test; only the bug was fixed before the reported run
+(deviation note in `docs/results.md`). The explanation of UABR's result is post-hoc; a class-balanced UABR is the
+natural next experiment and needs a fresh test split.
