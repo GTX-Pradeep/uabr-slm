@@ -429,3 +429,68 @@ failing on the missing replay checkpoints.
 0.684; Standard s11 0.324 / 0.511; Standard s29 0.331 / 0.493). The fix (`--resume` on a fresh run now starts from step 0)
 changes no method, setting, selection or claim rule; the replay files are regenerated identically from the same table
 and seeds. Run 2 repeats the whole notebook, and its numbers are the reported ones.
+
+## Phase 6 + 7, run 2: final results
+
+**Run:** `notebooks/phase6_7_replay_eval.ipynb`, `QUICK = False` (Kaggle `uabr-p67-replay`, version 2, commit `12b5ab2`),
+10 Nov 2026. 48/48 tests passed. Replay table and selections identical to run 1.
+
+**Budgets (matched).** Every branch: 1,092 updates, 6,000,073 instruction tokens; replay branches 300,012–300,070 replay
+tokens (5.0%). SFT time 7.9–8.9 min per run.
+
+**Selections** (seed 11; seed 29 differs only for Random):
+
+| Method | Distinct prompts | Replay rows | Targets ANSWER / CALL | Mean margin | Benefit −1 / 0 / +1 | Unknown facts |
+|---|---|---|---|---|---|---|
+| Random | 685 | 11,358 | 562 / 123 | 2.46 | 101 / 385 / 199 | 18% |
+| BPR | 640 | 10,594 | 502 / 138 | 0.46 | 77 / 333 / 230 | 22% |
+| UABR | 358 | 5,950 | 125 / 233 | 0.56 | 121 / 4 / 233 | 37% |
+
+Jaccard overlap of selected prompts: UABR–BPR 0.444, UABR–Random 0.118, BPR–Random 0.157.
+
+**Test results (2,880 prompts):**
+
+| Branch | Seed | Acc @5% | **Acc @10%** | Acc @20% | AUROC | Harmful @10% | Wasteful @10% | MI | CALL rate 0× / 300× |
+|---|---|---|---|---|---|---|---|---|---|
+| delegation_v1 | – | 0.688 | **0.704** | 0.733 | 0.684 | 0.218 | 0.041 | 0.444 | 0.557 / 0.195 |
+| Standard | 11 | 0.315 | **0.324** | 0.345 | 0.511 | 0.257 | 0.024 | 0.372 | 0.294 / 0.201 |
+| Standard | 29 | 0.322 | **0.331** | 0.342 | 0.493 | 0.225 | 0.028 | 0.339 | 0.237 / 0.149 |
+| Random | 11 | 0.461 | **0.479** | 0.514 | 0.594 | 0.354 | 0.030 | 0.529 | 0.653 / 0.448 |
+| Random | 29 | 0.460 | **0.478** | 0.513 | 0.587 | 0.360 | 0.027 | 0.541 | 0.592 / 0.430 |
+| BPR | 11 | 0.429 | **0.453** | 0.497 | 0.596 | 0.374 | 0.025 | 0.540 | 0.641 / 0.416 |
+| BPR | 29 | 0.432 | **0.453** | 0.499 | 0.603 | 0.370 | 0.025 | 0.554 | 0.618 / 0.423 |
+| UABR | 11 | 0.396 | **0.419** | 0.474 | 0.600 | 0.404 | 0.024 | 0.285 | 0.954 / 0.888 |
+| UABR | 29 | 0.404 | **0.427** | 0.475 | 0.598 | 0.395 | 0.023 | 0.312 | 0.947 / 0.879 |
+
+**Paired bootstrap (2,000 resamples, 95% CI; * = excludes 0):**
+
+| Comparison | Seed 11 acc@10% | Seed 29 acc@10% | Seed 11 AUROC | Seed 29 AUROC |
+|---|---|---|---|---|
+| UABR − Standard | +0.095 [+0.079, +0.111] * | +0.097 [+0.081, +0.113] * | +0.088 [+0.064, +0.114] * | +0.105 [+0.077, +0.132] * |
+| UABR − BPR | −0.034 [−0.048, −0.018] * | −0.026 [−0.041, −0.011] * | +0.004 [−0.015, +0.023] | −0.005 [−0.022, +0.014] |
+| UABR − Random | −0.059 [−0.075, −0.042] * | −0.051 [−0.067, −0.035] * | +0.006 [−0.014, +0.026] | +0.010 [−0.010, +0.030] |
+| BPR − Standard | +0.129 [+0.111, +0.145] * | +0.123 [+0.106, +0.141] * | +0.085 [+0.058, +0.112] * | +0.110 [+0.081, +0.137] * |
+| Random − Standard | +0.155 [+0.138, +0.172] * | +0.148 [+0.131, +0.166] * | +0.083 [+0.056, +0.109] * | +0.095 [+0.066, +0.125] * |
+
+**Verdict under the preregistered claim rule.**
+
+- UABR protects the policy better than **Standard SFT**: supported (both seeds, both metrics).
+- UABR protects it better than **BPR** or **Random**: **not supported**. On the primary endpoint UABR is significantly
+  worse than both in both seeds; on routing AUROC all three replay methods are tied.
+- Ordering on the primary endpoint, consistent in both seeds: Random > BPR > UABR > Standard.
+
+**Why UABR loses (post-hoc analysis, not preregistered).**
+
+1. *Target imbalance.* UABR's targets are 65% CALL (233 / 358) because it keeps only prompts where the choice matters
+   (benefit 0 is almost excluded: 4 of 358), and in this pool calling helps twice as often as it hurts (772 vs 367).
+   Random and BPR replay ~80% ANSWER targets.
+2. *Policy shift to always-call.* After UABR replay the model calls for 95% of never-shown and 88% of 300× facts;
+   mutual information falls to 0.30 bits (Random 0.54). The ranking itself (AUROC) is as good as with the baselines.
+3. *Less recall rehearsal.* At a 10% call budget, 90% of prompts are answered directly, so accuracy depends mostly on
+   direct recall. UABR replays 125 distinct ANSWER examples vs 562 for Random; its harmful-answer rate is the highest
+   (0.40 vs 0.36). Random, with the most ANSWER rehearsal, scores best.
+
+**Takeaways.** (1) Replay is necessary and cheap: 5% replay tokens recover ~40% of the lost accuracy and ~half the lost
+AUROC. (2) Choosing replay by decision utility alone is harmful when it unbalances the action targets; a balanced
+UABR (equal ANSWER/CALL budgets within the utility ranking) is the natural next experiment and was not run, because
+the test split has been used.
